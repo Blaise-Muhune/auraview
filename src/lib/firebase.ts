@@ -5,13 +5,13 @@ import { getFirestore } from 'firebase/firestore';
 // Your Firebase configuration
 // Replace these with your actual Firebase project config
 const firebaseConfig = {
-    apiKey: "AIzaSyDixDDDAIj6MlLUVBKxyQdck33MzCLd-44",
-    authDomain: "aura-c0748.firebaseapp.com",
-    projectId: "aura-c0748",
-    storageBucket: "aura-c0748.firebasestorage.app",
-    messagingSenderId: "756554007861",
-    appId: "1:756554007861:web:7ad6bf8c5b6ac99aab787c",
-    measurementId: "G-HKKWZ7T5DE"
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
   };
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
