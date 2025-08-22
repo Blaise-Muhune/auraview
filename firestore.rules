@@ -1,0 +1,38 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow authenticated users to read and write to all collections
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Specific rules for groups collection
+    match /groups/{groupId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == resource.data.createdBy;
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.createdBy || 
+         request.auth.uid in resource.data.participants);
+      allow delete: if request.auth != null && 
+        request.auth.uid == resource.data.createdBy;
+    }
+    
+    // Specific rules for users collection
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        request.auth.uid == userId;
+    }
+    
+    // Specific rules for ratings collection
+    match /ratings/{ratingId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == resource.data.fromUserId;
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.fromUserId;
+    }
+  }
+}

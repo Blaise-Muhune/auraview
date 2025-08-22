@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafafa;
+  --foreground: #1a1a1a;
+  --aura-primary: #8b5cf6;
+  --aura-secondary: #06b6d4;
+  --aura-accent: #f59e0b;
+  --aura-mystic: #10b981;
 }
 
 @theme inline {
@@ -12,15 +16,78 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Mystical glow effects */
+.aura-glow {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.2);
+}
+
+.aura-glow:hover {
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.3);
+}
+
+/* Floating animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Pulse animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Mystical background pattern */
+.mystical-bg {
+  background-image: 
+    radial-gradient(circle at 20% 80%, rgba(139, 92, 246, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(6, 182, 212, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(16, 185, 129, 0.03) 0%, transparent 50%);
+}
+
+/* Ethereal border */
+.ethereal-border {
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.02) 0%, rgba(6, 182, 212, 0.02) 100%);
+}
+
+/* Mystical text gradient */
+.mystical-text {
+  background: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 50%, #10b981 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
