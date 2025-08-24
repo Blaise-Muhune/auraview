@@ -184,7 +184,7 @@ export default function OnboardingPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center text-gray-900 mb-8 sm:mb-12">
             <h1 className="text-3xl sm:text-4xl font-bold mb-4">Welcome to Aura!</h1>
-            <p className="text-lg sm:text-xl text-gray-600">Let's set up your profile to help others discover your aura</p>
+            <p className="text-lg sm:text-xl text-gray-600">Let&apos;s set up your profile to help others discover your aura</p>
             <p className="text-gray-500 text-sm sm:text-base mt-2">This is optional - you can skip and add these later</p>
           </div>
 
