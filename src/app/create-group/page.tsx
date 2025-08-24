@@ -1,6 +1,7 @@
 'use client';
 
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -67,10 +68,10 @@ export default function CreateGroup() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-lg">Loading...</div>
+          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="text-gray-600 text-base sm:text-lg">Loading...</div>
         </div>
       </div>
     );
@@ -86,10 +87,19 @@ export default function CreateGroup() {
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="flex items-center gap-2 sm:gap-3">
+              <Image 
+                src="/logo.png" 
+                alt="Aura Logo" 
+                width={28} 
+                height={28} 
+                className="rounded-lg sm:w-8 sm:h-8"
+              />
+              <span className="text-xl sm:text-2xl font-bold text-gray-900">Aura</span>
+            </Link>
+            <div className="flex items-center gap-2 sm:gap-4">
               {user && (
-                <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-3">
                   {user.photoURL && (
                     <img 
                       src={user.photoURL} 
@@ -102,7 +112,7 @@ export default function CreateGroup() {
                   </span>
                 </div>
               )}
-              <Link href="/dashboard" className="px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700">
+              <Link href="/dashboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
                 Dashboard
               </Link>
             </div>
@@ -111,29 +121,29 @@ export default function CreateGroup() {
       </nav>
 
       {/* Create Group Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
         <div className="max-w-2xl mx-auto">
-          <div className="text-center text-gray-900 mb-12">
-            <h1 className="text-4xl font-bold mb-4">Create Group Session</h1>
-            <p className="text-xl text-gray-600">Start a new aura rating session with your friends</p>
+          <div className="text-center text-gray-900 mb-8 sm:mb-12">
+            <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">Create Group Session</h1>
+            <p className="text-lg sm:text-xl text-gray-600">Start a new aura rating session with your friends</p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-8">
             {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+              <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
                 {error}
               </div>
             )}
 
             {success && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-600 text-sm">
+              <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg text-green-600 text-sm">
                 {success}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
               <div>
-                <label htmlFor="name" className="block text-gray-900 font-medium mb-2">
+                <label htmlFor="name" className="block text-gray-900 font-medium mb-2 text-sm sm:text-base">
                   Group Name
                 </label>
                 <input
@@ -142,14 +152,14 @@ export default function CreateGroup() {
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors text-sm sm:text-base"
                   placeholder="Enter group name"
                   required
                 />
               </div>
 
               <div>
-                <label htmlFor="description" className="block text-gray-900 font-medium mb-2">
+                <label htmlFor="description" className="block text-gray-900 font-medium mb-2 text-sm sm:text-base">
                   Description (Optional)
                 </label>
                 <textarea
@@ -158,13 +168,13 @@ export default function CreateGroup() {
                   value={formData.description}
                   onChange={handleInputChange}
                   rows={3}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors resize-none"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors resize-none text-sm sm:text-base"
                   placeholder="Describe your group session..."
                 />
               </div>
 
               <div>
-                <label htmlFor="maxParticipants" className="block text-gray-900 font-medium mb-2">
+                <label htmlFor="maxParticipants" className="block text-gray-900 font-medium mb-2 text-sm sm:text-base">
                   Max Participants
                 </label>
                 <input
@@ -175,18 +185,18 @@ export default function CreateGroup() {
                   onChange={handleInputChange}
                   min="2"
                   max="100"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors text-sm sm:text-base"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isCreating}
-                className="w-full px-6 py-4 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 sm:px-6 py-3 sm:py-4 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
               >
                 {isCreating ? (
                   <span className="flex items-center justify-center gap-2">
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     Creating Group...
                   </span>
                 ) : (
@@ -197,8 +207,8 @@ export default function CreateGroup() {
               </button>
             </form>
 
-            <div className="mt-6 text-center">
-              <p className="text-gray-600">
+            <div className="mt-4 sm:mt-6 text-center">
+              <p className="text-gray-600 text-sm sm:text-base">
                 Or{" "}
                 <Link href="/join-group" className="text-blue-600 hover:text-blue-700 transition-colors font-medium">
                   join an existing group

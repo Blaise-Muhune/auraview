@@ -1,6 +1,7 @@
 'use client';
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -29,8 +30,6 @@ interface TMDBPerson {
   profile_path: string | null;
   popularity: number;
 }
-
-
 
 export default function Leaderboard() {
   const { user, loading } = useAuth();
@@ -61,7 +60,7 @@ export default function Leaderboard() {
   }, []);
 
   // TMDB API configuration
-  const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || 'demo_key'; // Get free API key from https://www.themoviedb.org/settings/api
+  const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || 'demo_key';
   const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
   const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w200';
 
@@ -92,8 +91,6 @@ export default function Leaderboard() {
         user.displayName.toLowerCase().includes(userSearchQuery.toLowerCase())
       );
       
-      // If we have search results, they should all be from the global rankings
-      // so we don't need to add unrated users
       setFilteredRankings(filtered);
       
       // Update current user rank in filtered results
@@ -376,11 +373,20 @@ export default function Leaderboard() {
       {/* Navigation */}
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center h-auto sm:h-16 py-4 sm:py-0 gap-4 sm:gap-0">
+            <Link href="/dashboard" className="flex items-center gap-3">
+              <Image 
+                src="/logo.png" 
+                alt="Aura Logo" 
+                width={32} 
+                height={32} 
+                className="rounded-lg"
+              />
+              <span className="text-xl sm:text-2xl font-bold text-gray-900">Aura</span>
+            </Link>
+            <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full sm:w-auto">
               {user && (
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 order-1 sm:order-none">
                   {user.photoURL && (
                     <img 
                       src={user.photoURL} 
@@ -393,28 +399,30 @@ export default function Leaderboard() {
                   </span>
                 </div>
               )}
-              <Link href="/dashboard" className="px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700">
-                Dashboard
-              </Link>
-              <button
-                onClick={handleSignOut}
-                className="px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-red-300 text-red-600"
-              >
-                Sign Out
-              </button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <Link href="/dashboard" className="flex-1 sm:flex-none px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-center text-sm">
+                  Dashboard
+                </Link>
+                <button
+                  onClick={handleSignOut}
+                  className="flex-1 sm:flex-none px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-red-300 text-red-600 text-center text-sm"
+                >
+                  Sign Out
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </nav>
 
       {/* Leaderboard Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center text-gray-900 mb-12">
-          <h1 className="text-4xl font-bold mb-4">Global Rankings</h1>
-          <p className="text-xl text-gray-600">See who has the highest aura scores worldwide</p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
+        <div className="text-center text-gray-900 mb-8 sm:mb-12">
+          <h1 className="text-3xl sm:text-4xl font-bold mb-4">Global Rankings</h1>
+          <p className="text-lg sm:text-xl text-gray-600">See who has the highest aura scores worldwide</p>
           {currentUserRank && (
             <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200 inline-block">
-              <span className="text-blue-700 font-semibold">
+              <span className="text-blue-700 font-semibold text-sm sm:text-base">
                 {userSearchQuery && currentUserRank > 20 
                   ? `Your Rank: #${currentUserRank} (not in top 20)`
                   : `Your Rank: #${currentUserRank}`
@@ -432,35 +440,35 @@ export default function Leaderboard() {
 
         {/* Stats Cards */}
         {stats && (
-          <div className="grid md:grid-cols-4 gap-6 mb-12">
-            <div className="bg-white rounded-xl p-6 text-center text-gray-900 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-blue-600 mb-2">{stats.highestAura.toLocaleString()}</div>
-              <div className="text-gray-500 text-sm">Highest Score</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-12">
+            <div className="bg-white rounded-xl p-4 sm:p-6 text-center text-gray-900 shadow-sm border border-gray-200">
+              <div className="text-2xl sm:text-3xl font-bold text-blue-600 mb-2">{stats.highestAura.toLocaleString()}</div>
+              <div className="text-gray-500 text-xs sm:text-sm">Highest Score</div>
             </div>
-            <div className="bg-white rounded-xl p-6 text-center text-gray-900 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-green-600 mb-2">{stats.averageAura.toLocaleString()}</div>
-              <div className="text-gray-500 text-sm">Average Score</div>
+            <div className="bg-white rounded-xl p-4 sm:p-6 text-center text-gray-900 shadow-sm border border-gray-200">
+              <div className="text-2xl sm:text-3xl font-bold text-green-600 mb-2">{stats.averageAura.toLocaleString()}</div>
+              <div className="text-gray-500 text-xs sm:text-sm">Average Score</div>
             </div>
-            <div className="bg-white rounded-xl p-6 text-center text-gray-900 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-purple-600 mb-2">{stats.totalUsers.toLocaleString()}</div>
-              <div className="text-gray-500 text-sm">Active Users</div>
+            <div className="bg-white rounded-xl p-4 sm:p-6 text-center text-gray-900 shadow-sm border border-gray-200">
+              <div className="text-2xl sm:text-3xl font-bold text-purple-600 mb-2">{stats.totalUsers.toLocaleString()}</div>
+              <div className="text-gray-500 text-xs sm:text-sm">Active Users</div>
             </div>
-            <div className="bg-white rounded-xl p-6 text-center text-gray-900 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-orange-600 mb-2">{stats.totalRatings.toLocaleString()}</div>
-              <div className="text-gray-500 text-sm">Total Ratings</div>
+            <div className="bg-white rounded-xl p-4 sm:p-6 text-center text-gray-900 shadow-sm border border-gray-200">
+              <div className="text-2xl sm:text-3xl font-bold text-orange-600 mb-2">{stats.totalRatings.toLocaleString()}</div>
+              <div className="text-gray-500 text-xs sm:text-sm">Total Ratings</div>
             </div>
           </div>
         )}
 
         {/* Leaderboard Table */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-8 py-6 border-b border-gray-200 bg-gray-50">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-gray-900">Global Rankings</h2>
-              <div className="flex gap-2">
+          <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 bg-gray-50">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Global Rankings</h2>
+              <div className="flex gap-2 w-full sm:w-auto">
                 <button 
                   onClick={() => handleTabChange('users')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     activeTab === 'users' 
                       ? 'bg-blue-600 text-white shadow-sm' 
                       : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
@@ -470,7 +478,7 @@ export default function Leaderboard() {
                 </button>
                 <button 
                   onClick={() => handleTabChange('famous')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     activeTab === 'famous' 
                       ? 'bg-blue-600 text-white shadow-sm' 
                       : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
@@ -486,7 +494,7 @@ export default function Leaderboard() {
             // Users Leaderboard
             <>
               {/* Search Bar for Users */}
-              <div className="px-8 py-6 border-b border-gray-200">
+              <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -498,7 +506,7 @@ export default function Leaderboard() {
                     placeholder="Search users by name..."
                     value={userSearchQuery}
                     onChange={(e) => setUserSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm sm:text-base"
                   />
                   {userSearchQuery && (
                     <button
@@ -540,12 +548,12 @@ export default function Leaderboard() {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Rank</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">User</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Aura Score</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Groups</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Ratings</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Actions</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Rank</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">User</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Aura Score</th>
+                        <th className="hidden sm:table-cell text-left py-4 px-6 text-gray-700 font-semibold text-sm">Groups</th>
+                        <th className="hidden sm:table-cell text-left py-4 px-6 text-gray-700 font-semibold text-sm">Ratings</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -563,16 +571,16 @@ export default function Leaderboard() {
                           <tr key={userRanking.userId} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
                             isCurrentUser ? 'bg-blue-50 border-blue-200' : ''
                           }`}>
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-3 sm:px-6">
                               {getRankBadge(actualRank)}
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                            <td className="py-4 px-3 sm:px-6">
+                              <div className="flex items-center gap-2 sm:gap-4">
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm">
                                   {userRanking.displayName.charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="text-gray-900 font-medium flex items-center gap-2">
+                                  <div className="text-gray-900 font-medium flex items-center gap-2 text-sm sm:text-base">
                                     {userRanking.displayName}
                                     {isCurrentUser && (
                                       <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
@@ -580,33 +588,33 @@ export default function Leaderboard() {
                                       </span>
                                     )}
                                   </div>
-                                  <div className={`text-sm font-medium ${auraLevel.color}`}>
+                                  <div className={`text-xs sm:text-sm font-medium ${auraLevel.color}`}>
                                     {auraLevel.level} Aura
                                   </div>
                                 </div>
                               </div>
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="text-gray-900 font-bold text-lg">{userRanking.totalAura.toLocaleString()}</div>
+                            <td className="py-4 px-3 sm:px-6">
+                              <div className="text-gray-900 font-bold text-base sm:text-lg">{userRanking.totalAura.toLocaleString()}</div>
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="text-gray-600">{userRanking.groupsJoined} groups</div>
+                            <td className="hidden sm:table-cell py-4 px-6">
+                              <div className="text-gray-600 text-sm">{userRanking.groupsJoined} groups</div>
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="text-gray-600">{userRanking.ratingsReceived} ratings</div>
+                            <td className="hidden sm:table-cell py-4 px-6">
+                              <div className="text-gray-600 text-sm">{userRanking.ratingsReceived} ratings</div>
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="flex gap-2">
+                            <td className="py-4 px-3 sm:px-6">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <Link 
                                   href={`/profile/${userRanking.userId}`}
-                                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 transition-colors font-medium"
+                                  className="px-2 sm:px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs sm:text-sm hover:bg-gray-200 transition-colors font-medium text-center"
                                 >
                                   View Profile
                                 </Link>
                                 {user && userRanking.userId !== user.uid && (
                                   <Link 
                                     href={`/rate-user/${userRanking.userId}`}
-                                    className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-medium"
+                                    className="px-2 sm:px-3 py-1.5 bg-blue-600 text-white rounded text-xs sm:text-sm hover:bg-blue-700 transition-colors font-medium text-center"
                                   >
                                     Rate User
                                   </Link>
@@ -623,7 +631,7 @@ export default function Leaderboard() {
             </>
           ) : (
             // Famous People Leaderboard
-            <div className="px-8 py-6">
+            <div className="px-4 sm:px-8 py-4 sm:py-6">
               {/* Search Bar */}
               <div className="mb-6">
                 <div className="relative">
@@ -638,7 +646,7 @@ export default function Leaderboard() {
                     placeholder="Search famous people..."
                     value={searchQuery}
                     onChange={handleSearchChange}
-                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm sm:text-base"
                   />
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3">
                     {searchQuery && !isSearching && (
@@ -691,7 +699,7 @@ export default function Leaderboard() {
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">
                     {searchQuery ? 'No Results Found' : 'No Famous People Rankings Yet'}
                   </h3>
-                  <p className="text-gray-600 mb-6">
+                  <p className="text-gray-600 mb-6 text-sm sm:text-base">
                     {searchQuery 
                       ? `No famous people found matching "${searchQuery}". Try a different search term.`
                       : !hasValidApiKey 
@@ -721,11 +729,11 @@ export default function Leaderboard() {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Rank</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Famous Person</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Aura Score</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Ratings</th>
-                        <th className="text-left py-4 px-6 text-gray-700 font-semibold">Actions</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Rank</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Famous Person</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Aura Score</th>
+                        <th className="hidden sm:table-cell text-left py-4 px-6 text-gray-700 font-semibold text-sm">Ratings</th>
+                        <th className="text-left py-4 px-3 sm:px-6 text-gray-700 font-semibold text-sm">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -744,7 +752,7 @@ export default function Leaderboard() {
                         
                         return (
                           <tr key={famousPerson.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-3 sm:px-6">
                               {actualRank === -1 ? (
                                 <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs font-medium">
                                   NR
@@ -753,32 +761,32 @@ export default function Leaderboard() {
                                 getRankBadge(actualRank)
                               )}
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                            <td className="py-4 px-3 sm:px-6">
+                              <div className="flex items-center gap-2 sm:gap-4">
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm">
                                   {famousPerson.name.charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="text-gray-900 font-medium flex items-center gap-2">
+                                  <div className="text-gray-900 font-medium flex items-center gap-2 text-sm sm:text-base">
                                     {famousPerson.name}
                                   </div>
-                                  <div className={`text-sm font-medium ${auraLevel.color}`}>
+                                  <div className={`text-xs sm:text-sm font-medium ${auraLevel.color}`}>
                                     {auraLevel.level} Aura
                                   </div>
                                 </div>
                               </div>
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="text-gray-900 font-bold text-lg">{famousPerson.totalAura.toLocaleString()}</div>
+                            <td className="py-4 px-3 sm:px-6">
+                              <div className="text-gray-900 font-bold text-base sm:text-lg">{famousPerson.totalAura.toLocaleString()}</div>
                             </td>
-                            <td className="py-4 px-6">
-                              <div className="text-gray-600">{famousPerson.ratingsReceived} ratings</div>
+                            <td className="hidden sm:table-cell py-4 px-6">
+                              <div className="text-gray-600 text-sm">{famousPerson.ratingsReceived} ratings</div>
                             </td>
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-3 sm:px-6">
                               <div className="flex gap-2">
                                 <Link 
                                   href={`/rate-famous/${famousPerson.id}`}
-                                  className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-medium"
+                                  className="px-2 sm:px-3 py-1.5 bg-blue-600 text-white rounded text-xs sm:text-sm hover:bg-blue-700 transition-colors font-medium text-center"
                                 >
                                   Rate Person
                                 </Link>
@@ -796,39 +804,39 @@ export default function Leaderboard() {
         </div>
 
         {/* How to Rank Section */}
-        <div className="mt-12 bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-          <h3 className="text-2xl font-bold text-gray-900 text-center mb-8">How to Get on the Leaderboard</h3>
-          <div className="grid md:grid-cols-3 gap-8">
+        <div className="mt-8 sm:mt-12 bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-8">
+          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-6 sm:mb-8">How to Get on the Leaderboard</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
             <div className="text-center text-gray-900">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
               </div>
-              <h4 className="text-lg font-semibold mb-2">Build Your Network</h4>
-              <p className="text-gray-600 text-sm">Connect with more friends and expand your social circle to receive more aura points.</p>
+              <h4 className="text-base sm:text-lg font-semibold mb-2">Build Your Network</h4>
+              <p className="text-gray-600 text-xs sm:text-sm">Connect with more friends and expand your social circle to receive more aura points.</p>
             </div>
             <div className="text-center text-gray-900">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="h-6 w-6 sm:h-8 sm:w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h4 className="text-lg font-semibold mb-2">Show Your Qualities</h4>
-              <p className="text-gray-600 text-sm">Demonstrate your personality, achievements, and character to earn higher rankings.</p>
+              <h4 className="text-base sm:text-lg font-semibold mb-2">Show Your Qualities</h4>
+              <p className="text-gray-600 text-xs sm:text-sm">Demonstrate your personality, achievements, and character to earn higher rankings.</p>
             </div>
-            <div className="text-center text-gray-900">
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="h-8 w-8 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="text-center text-gray-900 sm:col-span-2 lg:col-span-1">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="h-6 w-6 sm:h-8 sm:w-8 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <h4 className="text-lg font-semibold mb-2">Stay Active</h4>
-              <p className="text-gray-600 text-sm">Regular engagement and positive interactions help maintain your aura score.</p>
+              <h4 className="text-base sm:text-lg font-semibold mb-2">Stay Active</h4>
+              <p className="text-gray-600 text-xs sm:text-sm">Regular engagement and positive interactions help maintain your aura score.</p>
             </div>
           </div>
         </div>
       </main>
     </div>
   );
-} 
+}

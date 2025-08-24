@@ -95,10 +95,10 @@ export default function MyGroupsPage() {
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-lg">Loading your groups...</div>
+          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="text-gray-600 text-base sm:text-lg">Loading your groups...</div>
         </div>
       </div>
     );
@@ -114,10 +114,10 @@ export default function MyGroupsPage() {
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="text-xl sm:text-2xl font-bold text-gray-900">Aura</Link>
+            <div className="flex items-center gap-2 sm:gap-4">
               {user && (
-                <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-3">
                   {user.photoURL && (
                     <img 
                       src={user.photoURL} 
@@ -130,10 +130,10 @@ export default function MyGroupsPage() {
                   </span>
                 </div>
               )}
-              <Link href="/dashboard" className="px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700">
+              <Link href="/dashboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
                 Dashboard
               </Link>
-              <Link href="/leaderboard" className="px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700">
+              <Link href="/leaderboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
                 Leaderboard
               </Link>
             </div>
@@ -142,79 +142,79 @@ export default function MyGroupsPage() {
       </nav>
 
       {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center text-gray-900 mb-12">
-          <h1 className="text-4xl font-bold mb-4">My Groups</h1>
-          <p className="text-xl text-gray-600">Manage your aura rating sessions</p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
+        <div className="text-center text-gray-900 mb-8 sm:mb-12">
+          <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">My Groups</h1>
+          <p className="text-lg sm:text-xl text-gray-600">Manage your aura rating sessions</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
             {error}
           </div>
         )}
 
         {groups.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
-            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <svg className="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-12 text-center">
+            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+              <svg className="h-8 w-8 sm:h-12 sm:w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <h3 className="text-2xl font-semibold text-gray-900 mb-4">No Groups Yet</h3>
-            <p className="text-gray-600 mb-8">You haven&apos;t joined or created any groups yet.</p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <h3 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-3 sm:mb-4">No Groups Yet</h3>
+            <p className="text-gray-600 mb-6 sm:mb-8 text-sm sm:text-base">You haven&apos;t joined or created any groups yet.</p>
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
               <Link 
                 href="/create-group"
-                className="px-6 py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm"
+                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-sm sm:text-base"
               >
                 Create Your First Group
               </Link>
               <Link 
                 href="/join-group"
-                className="px-6 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors"
+                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors text-sm sm:text-base"
               >
                 Join a Group
               </Link>
             </div>
           </div>
         ) : (
-          <div className="grid gap-6">
+          <div className="grid gap-4 sm:gap-6">
             {groups.map((group, index) => {
               const isCreator = group.createdBy === user.uid;
               const groupStatus = getGroupStatus(group);
               
               return (
-                <div key={group.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-all p-6">
-                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                <div key={group.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-all p-4 sm:p-6">
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 sm:gap-6">
                     {/* Group Info */}
                     <div className="flex-1">
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-lg">
+                      <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm sm:text-lg">
                           {index + 1}
                         </div>
-                        <div>
-                          <h3 className="text-xl font-semibold text-gray-900">{group.name}</h3>
-                          <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                            <span>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">{group.name}</h3>
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-500 mt-1">
+                            <span className="flex items-center gap-1">
                               Code: 
                               <button
                                 onClick={() => toggleCodeVisibility(group.id!)}
-                                className="ml-1 text-blue-600 hover:text-blue-700 font-medium"
+                                className="text-blue-600 hover:text-blue-700 font-medium"
                               >
                                 {visibleCodes[group.id!] ? 'Hide' : 'Show'}
                               </button>
                               {visibleCodes[group.id!] ? (
-                                <span className="ml-1 font-mono bg-gray-100 px-2 py-1 rounded">{group.code}</span>
+                                <span className="font-mono bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-xs">{group.code}</span>
                               ) : (
-                                <span className="ml-1 font-mono bg-gray-100 px-2 py-1 rounded">{'•'.repeat(group.code.length)}</span>
+                                <span className="font-mono bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-xs">{'•'.repeat(group.code.length)}</span>
                               )}
                             </span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${groupStatus.bgColor} ${groupStatus.color}`}>
+                            <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium ${groupStatus.bgColor} ${groupStatus.color}`}>
                               {groupStatus.status}
                             </span>
                             {isCreator && (
-                              <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                              <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
                                 Creator
                               </span>
                             )}
@@ -223,10 +223,10 @@ export default function MyGroupsPage() {
                       </div>
                       
                       {group.description && (
-                        <p className="text-gray-600 mb-4">{group.description}</p>
+                        <p className="text-gray-600 mb-3 sm:mb-4 text-sm sm:text-base">{group.description}</p>
                       )}
                       
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500">
+                      <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
                         <span>Created: {formatDate(group.createdAt)}</span>
                         <span>•</span>
                         <span>{group.participants.length} participant{group.participants.length !== 1 ? 's' : ''}</span>
@@ -240,24 +240,24 @@ export default function MyGroupsPage() {
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                       <Link 
                         href={`/group/${group.id}`}
-                        className="px-4 py-2 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors text-sm text-center shadow-sm"
+                        className="px-3 sm:px-4 py-2 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors text-xs sm:text-sm text-center shadow-sm"
                       >
                         View Group
                       </Link>
                       
                       <Link 
                         href={`/group/${group.id}/rate`}
-                        className="px-4 py-2 bg-green-600 rounded-lg text-white font-semibold hover:bg-green-700 transition-colors text-sm text-center shadow-sm"
+                        className="px-3 sm:px-4 py-2 bg-green-600 rounded-lg text-white font-semibold hover:bg-green-700 transition-colors text-xs sm:text-sm text-center shadow-sm"
                       >
                         Rate Friends
                       </Link>
                       
                       <Link 
                         href={`/group/${group.id}/results`}
-                        className="px-4 py-2 bg-purple-600 rounded-lg text-white font-semibold hover:bg-purple-700 transition-colors text-sm text-center shadow-sm"
+                        className="px-3 sm:px-4 py-2 bg-purple-600 rounded-lg text-white font-semibold hover:bg-purple-700 transition-colors text-xs sm:text-sm text-center shadow-sm"
                       >
                         View Results
                       </Link>
@@ -266,7 +266,7 @@ export default function MyGroupsPage() {
                         <button
                           onClick={() => handleLeaveGroup(group.id!)}
                           disabled={leavingGroupId === group.id}
-                          className="px-4 py-2 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                          className="px-3 sm:px-4 py-2 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition-colors text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                         >
                           {leavingGroupId === group.id ? 'Leaving...' : 'Leave Group'}
                         </button>
@@ -281,18 +281,18 @@ export default function MyGroupsPage() {
 
         {/* Quick Actions */}
         {groups.length > 0 && (
-          <div className="mt-12 bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-            <h3 className="text-2xl font-bold text-gray-900 text-center mb-8">Quick Actions</h3>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="mt-8 sm:mt-12 bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-8">
+            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-6 sm:mb-8">Quick Actions</h3>
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
               <Link 
                 href="/create-group"
-                className="px-6 py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-center"
+                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-center text-sm sm:text-base"
               >
                 Create New Group
               </Link>
               <Link 
                 href="/join-group"
-                className="px-6 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors text-center"
+                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors text-center text-sm sm:text-base"
               >
                 Join Another Group
               </Link>
