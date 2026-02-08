@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
+import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
-import { getUserGroups, leaveGroup, GroupSession } from "@/lib/firestore";
+import { getUserGroups, leaveGroup, closeGroupVoting, getParticipantIdsRatedByUserInGroup, GroupSession } from "@/lib/firestore";
 import { collection, query, limit, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -15,7 +16,10 @@ export default function MyGroupsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [leavingGroupId, setLeavingGroupId] = useState<string | null>(null);
+  const [closingGroupId, setClosingGroupId] = useState<string | null>(null);
   const [visibleCodes, setVisibleCodes] = useState<{[key: string]: boolean}>({});
+  const [copiedGroupId, setCopiedGroupId] = useState<string | null>(null);
+  const [unratedCountByGroupId, setUnratedCountByGroupId] = useState<Record<string, number>>({});
 
   const loadUserGroups = useCallback(async () => {
     try {
@@ -49,6 +53,54 @@ export default function MyGroupsPage() {
     }
   }, [user, loading, router, loadUserGroups]);
 
+  useEffect(() => {
+    if (!user || groups.length === 0) return;
+    const fetchUnratedCounts = async () => {
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        groups.map(async (g) => {
+          if (!g.id) return;
+          const rated = await getParticipantIdsRatedByUserInGroup(g.id, user.uid);
+          const participantsToRate = g.participants.filter((p) => p !== user.uid);
+          const unrated = participantsToRate.filter((p) => !rated.includes(p));
+          counts[g.id] = unrated.length;
+        })
+      );
+      setUnratedCountByGroupId((prev) => ({ ...prev, ...counts }));
+    };
+    fetchUnratedCounts();
+  }, [user, groups]);
+
+  const handleCloseVoting = async (groupId: string) => {
+    setClosingGroupId(groupId);
+    try {
+      await closeGroupVoting(groupId);
+      setGroups(prev => prev.map(g => g.id === groupId ? { ...g, votingClosed: true } : g));
+    } catch {
+      setError('Failed to close voting');
+    } finally {
+      setClosingGroupId(null);
+    }
+  };
+
+  const copyGroupLink = async (group: GroupSession) => {
+    const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/join-group?code=${group.code}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedGroupId(group.id!);
+      setTimeout(() => setCopiedGroupId(null), 2000);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedGroupId(group.id!);
+      setTimeout(() => setCopiedGroupId(null), 2000);
+    }
+  };
+
   const handleLeaveGroup = async (groupId: string) => {
     if (!user) return;
 
@@ -64,26 +116,20 @@ export default function MyGroupsPage() {
     }
   };
 
-  const formatDate = (timestamp: unknown) => {
-    if (!timestamp) return 'Unknown';
-    const date = timestamp && typeof timestamp === 'object' && 'toDate' in timestamp 
-      ? (timestamp as { toDate(): Date }).toDate() 
-      : new Date(timestamp as string | number);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const getGroupStatus = (group: GroupSession) => {
-    if (!group.isActive) return { status: 'Inactive', color: 'text-gray-500', bgColor: 'bg-gray-100' };
-    if (group.participants.length >= (group.maxParticipants || 50)) {
-      return { status: 'Full', color: 'text-red-600', bgColor: 'bg-red-100' };
+  const shareGroupLink = async (group: GroupSession) => {
+    const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/join-group?code=${group.code}`;
+    const title = `Join ${group.name} on Aura`;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({ title, url, text: `Join my group "${group.name}" on Aura` });
+        setCopiedGroupId(group.id!);
+        setTimeout(() => setCopiedGroupId(null), 2000);
+        return;
+      } catch {
+        // User cancelled or share failed
+      }
     }
-    return { status: 'Active', color: 'text-green-600', bgColor: 'bg-green-100' };
+    copyGroupLink(group);
   };
 
   const toggleCodeVisibility = (groupId: string) => {
@@ -95,11 +141,8 @@ export default function MyGroupsPage() {
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-base sm:text-lg">Loading your groups...</div>
-        </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">Loading groups...</span>
       </div>
     );
   }
@@ -109,168 +152,211 @@ export default function MyGroupsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="text-xl sm:text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex items-center gap-2 sm:gap-4">
-              {user && (
-                <div className="hidden sm:flex items-center gap-3">
-                  {user.photoURL && (
-                    <img 
-                      src={user.photoURL} 
-                      alt={user.displayName || 'User'} 
-                      className="w-8 h-8 rounded-full"
-                    />
-                  )}
-                  <span className="text-sm text-gray-600">
-                    {user.displayName || 'User'}
-                  </span>
-                </div>
-              )}
-              <Link href="/dashboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
-                Dashboard
-              </Link>
-              <Link href="/leaderboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
-                Leaderboard
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-white dark:bg-gray-950 relative overflow-hidden">
+      {/* Ambient gradient */}
+      <div 
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.06) 0%, transparent 50%)',
+        }}
+      />
+      <div 
+        className="fixed inset-0 pointer-events-none dark:block hidden"
+        style={{
+          background: 'radial-gradient(ellipse 60% 40% at 50% -10%, rgba(59, 130, 246, 0.05) 0%, transparent 45%)',
+        }}
+      />
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
-        <div className="text-center text-gray-900 mb-8 sm:mb-12">
-          <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">My Groups</h1>
-          <p className="text-lg sm:text-xl text-gray-600">Manage your aura rating sessions</p>
+      <Nav 
+        showBack 
+        backHref="/dashboard" 
+        rightContent={
+          <Link href="/leaderboard" className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">
+            Leaderboard
+          </Link>
+        }
+      />
+
+      <main className="relative max-w-2xl mx-auto px-4 py-10">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">My Groups</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-xs">{groups.length} {groups.length === 1 ? 'group' : 'groups'}</p>
+          </div>
         </div>
 
         {error && (
-          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-            {error}
-          </div>
+          <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>
         )}
 
         {groups.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-12 text-center">
-            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
-              <svg className="h-8 w-8 sm:h-12 sm:w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          <div className="relative overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-gradient-to-b from-blue-50/50 to-transparent dark:from-blue-950/20 dark:to-transparent p-10 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
               </svg>
             </div>
-            <h3 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-3 sm:mb-4">No Groups Yet</h3>
-            <p className="text-gray-600 mb-6 sm:mb-8 text-sm sm:text-base">You haven&apos;t joined or created any groups yet.</p>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">No groups yet</h3>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Create or join to get started</p>
+            <div className="flex gap-3 justify-center">
               <Link 
                 href="/create-group"
-                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-sm sm:text-base"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 dark:bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 transition-colors"
+                title="Create group"
               >
-                Create Your First Group
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                Create
               </Link>
               <Link 
                 href="/join-group"
-                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors text-sm sm:text-base"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-medium text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                title="Join with code"
               >
-                Join a Group
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                </svg>
+                Join
               </Link>
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 sm:gap-6">
-            {groups.map((group, index) => {
+          <div className="space-y-3">
+            {groups.map((group, i) => {
               const isCreator = group.createdBy === user.uid;
-              const groupStatus = getGroupStatus(group);
+              const initial = group.name.charAt(0).toUpperCase();
               
               return (
-                <div key={group.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-all p-4 sm:p-6">
-                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 sm:gap-6">
-                    {/* Group Info */}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm sm:text-lg">
-                          {index + 1}
+                <div 
+                  key={group.id} 
+                  className="aura-card relative overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900/50 backdrop-blur-sm transition-all duration-300"
+                  style={{ animationDelay: `${i * 60}ms` }}
+                >
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-400/50 via-blue-500/40 to-blue-400/50 dark:from-blue-500/40 dark:via-blue-600/30 dark:to-blue-500/40" />
+                  
+                  <div className="flex items-start justify-between gap-4 p-4 pl-5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-400 font-semibold text-sm shrink-0">
+                          {initial}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">{group.name}</h3>
-                          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-500 mt-1">
-                            <span className="flex items-center gap-1">
-                              Code: 
-                              <button
-                                onClick={() => toggleCodeVisibility(group.id!)}
-                                className="text-blue-600 hover:text-blue-700 font-medium"
-                              >
-                                {visibleCodes[group.id!] ? 'Hide' : 'Show'}
-                              </button>
-                              {visibleCodes[group.id!] ? (
-                                <span className="font-mono bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-xs">{group.code}</span>
-                              ) : (
-                                <span className="font-mono bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-xs">{'•'.repeat(group.code.length)}</span>
-                              )}
-                            </span>
-                            <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium ${groupStatus.bgColor} ${groupStatus.color}`}>
-                              {groupStatus.status}
-                            </span>
-                            {isCreator && (
-                              <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-                                Creator
-                              </span>
-                            )}
-                          </div>
+                        <div>
+                          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{group.name}</h3>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {group.participants.length} {group.participants.length === 1 ? 'person' : 'people'}
+                            {isCreator && ' · You'}
+                          </p>
                         </div>
                       </div>
-                      
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ml-[52px]">
+                        <span className="font-mono">{visibleCodes[group.id!] ? group.code : '••••••'}</span>
+                        <button onClick={() => toggleCodeVisibility(group.id!)} className="p-1 hover:text-blue-600 dark:hover:text-blue-400 rounded" title={visibleCodes[group.id!] ? 'Hide code' : 'Show code'}>
+                          {visibleCodes[group.id!] ? (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                          )}
+                        </button>
+                        <button onClick={() => copyGroupLink(group)} className="p-1 hover:text-blue-600 dark:hover:text-blue-400 rounded" title="Copy link">
+                          {copiedGroupId === group.id ? (
+                            <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                          )}
+                        </button>
+                        <button onClick={() => shareGroupLink(group)} className="p-1 hover:text-blue-600 dark:hover:text-blue-400 rounded" title="Share invite link">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                        </button>
+                      </div>
                       {group.description && (
-                        <p className="text-gray-600 mb-3 sm:mb-4 text-sm sm:text-base">{group.description}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-1 ml-[52px]">{group.description}</p>
                       )}
-                      
-                      <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
-                        <span>Created: {formatDate(group.createdAt)}</span>
-                        <span>•</span>
-                        <span>{group.participants.length} participant{group.participants.length !== 1 ? 's' : ''}</span>
-                        {group.maxParticipants && (
+                    </div>
+
+                    <div className="shrink-0 flex flex-col items-end gap-2">
+                      {(() => {
+                        const participantsToRate = group.participants.filter((p) => p !== user.uid);
+                        const unratedCount = unratedCountByGroupId[group.id!] ?? participantsToRate.length;
+                        const allRated = participantsToRate.length > 0 && unratedCount === 0;
+                        const showRate = !group.votingClosed && !allRated && participantsToRate.length > 0;
+                        return (
+                      <div className="inline-flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 p-0.5">
+                        {group.votingClosed || allRated ? (
+                          <Link
+                            href={`/group/${group.id}/results`}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 transition-colors"
+                            title="View results"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            Results
+                          </Link>
+                        ) : (
                           <>
-                            <span>•</span>
-                            <span>Max: {group.maxParticipants}</span>
+                            {showRate && (
+                              <Link
+                                href={`/group/${group.id}/rate`}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 transition-colors"
+                                title="Rate members"
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                </svg>
+                                Rate({unratedCount})
+                              </Link>
+                            )}
+                            <Link
+                              href={`/group/${group.id}/results`}
+                              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md font-medium text-sm transition-colors ${
+                                showRate ? 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50' : 'bg-blue-600 text-white hover:bg-blue-700'
+                              }`}
+                              title="View results"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                              </svg>
+                              Results
+                            </Link>
                           </>
                         )}
                       </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
-                      <Link 
-                        href={`/group/${group.id}`}
-                        className="px-3 sm:px-4 py-2 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors text-xs sm:text-sm text-center shadow-sm"
-                      >
-                        View Group
-                      </Link>
-                      
-                      <Link 
-                        href={`/group/${group.id}/rate`}
-                        className="px-3 sm:px-4 py-2 bg-green-600 rounded-lg text-white font-semibold hover:bg-green-700 transition-colors text-xs sm:text-sm text-center shadow-sm"
-                      >
-                        Rate Friends
-                      </Link>
-                      
-                      <Link 
-                        href={`/group/${group.id}/results`}
-                        className="px-3 sm:px-4 py-2 bg-purple-600 rounded-lg text-white font-semibold hover:bg-purple-700 transition-colors text-xs sm:text-sm text-center shadow-sm"
-                      >
-                        View Results
-                      </Link>
-                      
-                      {!isCreator && (
-                        <button
-                          onClick={() => handleLeaveGroup(group.id!)}
-                          disabled={leavingGroupId === group.id}
-                          className="px-3 sm:px-4 py-2 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition-colors text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                        >
-                          {leavingGroupId === group.id ? 'Leaving...' : 'Leave Group'}
-                        </button>
-                      )}
+                        );
+                      })()}
+                      <div className="flex items-center gap-1">
+                        {isCreator && !group.votingClosed && (
+                          <button
+                            onClick={() => handleCloseVoting(group.id!)}
+                            disabled={closingGroupId === group.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50 transition-colors"
+                            title="Close voting"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                            {closingGroupId === group.id ? 'Closing…' : 'Close voting'}
+                          </button>
+                        )}
+                        {!isCreator && (
+                          <button
+                            onClick={() => handleLeaveGroup(group.id!)}
+                            disabled={leavingGroupId === group.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 dark:text-gray-400 text-xs hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
+                            title="Leave group"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                            {leavingGroupId === group.id ? 'Leaving…' : 'Leave'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -279,24 +365,28 @@ export default function MyGroupsPage() {
           </div>
         )}
 
-        {/* Quick Actions */}
         {groups.length > 0 && (
-          <div className="mt-8 sm:mt-12 bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-8">
-            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-6 sm:mb-8">Quick Actions</h3>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-              <Link 
-                href="/create-group"
-                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-center text-sm sm:text-base"
-              >
-                Create New Group
-              </Link>
-              <Link 
-                href="/join-group"
-                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors text-center text-sm sm:text-base"
-              >
-                Join Another Group
-              </Link>
-            </div>
+          <div className="mt-8 flex gap-2 justify-center">
+            <Link 
+              href="/create-group"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 text-sm hover:border-blue-400/50 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              title="Create group"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Create
+            </Link>
+            <Link 
+              href="/join-group"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 text-sm hover:border-blue-400/50 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              title="Join with code"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+              </svg>
+              Join
+            </Link>
           </div>
         )}
       </main>

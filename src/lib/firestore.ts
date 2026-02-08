@@ -27,6 +27,12 @@ export interface GroupSession {
   isActive: boolean;
   participants: string[];
   maxParticipants?: number;
+  /** When true, creator has manually closed voting */
+  votingClosed?: boolean;
+  /** Auto-close voting after this time (default: 7 days after creation) */
+  votingClosesAt?: Timestamp;
+  /** Close when this many unique voters have submitted (optional) */
+  minVotersToClose?: number;
 }
 
 export interface UserProfile {
@@ -111,7 +117,9 @@ export const createGroupSession = async (
   name: string, 
   description: string, 
   user: User,
-  maxParticipants?: number
+  maxParticipants?: number,
+  votingDurationDays?: number,
+  minVotersToClose?: number
 ): Promise<string> => {
   let code: string;
   let exists: boolean;
@@ -126,6 +134,9 @@ export const createGroupSession = async (
   const userProfile = await ensureUserProfile(user);
   const displayName = userProfile.displayName || user.displayName || 'Anonymous';
 
+  const days = votingDurationDays ?? 7;
+  const closesAt = Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
+
   const groupData: Omit<GroupSession, 'id'> = {
     name,
     description,
@@ -135,11 +146,36 @@ export const createGroupSession = async (
     createdAt: serverTimestamp() as Timestamp,
     isActive: true,
     participants: [user.uid],
-    maxParticipants: maxParticipants || 50
+    maxParticipants: maxParticipants || 50,
+    votingClosesAt: closesAt,
+    ...(minVotersToClose != null && minVotersToClose > 0 && { minVotersToClose }),
   };
 
   const docRef = await addDoc(collection(db, 'groups'), groupData);
   return docRef.id;
+};
+
+// Close voting manually (creator only)
+export const closeGroupVoting = async (groupId: string): Promise<void> => {
+  await updateDoc(doc(db, 'groups', groupId), {
+    votingClosed: true,
+  });
+};
+
+// Check if voting is closed (manual, time-based, or voter threshold)
+export const isVotingClosed = (
+  group: GroupSession,
+  uniqueVoterCount: number,
+  now: Date = new Date()
+): boolean => {
+  if (group.votingClosed) return true;
+  if (group.votingClosesAt) {
+    const ts = group.votingClosesAt as Timestamp;
+    const closesAt = ts?.toDate ? ts.toDate() : new Date((ts as unknown as { seconds: number }).seconds * 1000);
+    if (now >= closesAt) return true;
+  }
+  if (group.minVotersToClose != null && uniqueVoterCount >= group.minVotersToClose) return true;
+  return false;
 };
 
 // Get group by ID
@@ -405,6 +441,17 @@ export const submitRating = async (
   }
 
   await addDoc(collection(db, 'ratings'), ratingData);
+};
+
+// Get participant IDs the current user has already rated in a group (persisted)
+export const getParticipantIdsRatedByUserInGroup = async (groupId: string, fromUserId: string): Promise<string[]> => {
+  const q = query(
+    collection(db, 'ratings'),
+    where('groupId', '==', groupId),
+    where('fromUserId', '==', fromUserId)
+  );
+  const snapshot = await getDocs(q);
+  return [...new Set(snapshot.docs.map(d => (d.data() as Rating).toUserId))];
 };
 
 // Get ratings for a group

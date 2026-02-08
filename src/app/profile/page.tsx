@@ -1,16 +1,15 @@
 'use client';
 
-import Link from "next/link";
-import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
+import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getUserProfile, updateUserProfile, UserProfile, ensureUserProfile } from "@/lib/firestore";
+import { updateUserProfile, UserProfile, ensureUserProfile } from "@/lib/firestore";
 
 export default function ProfilePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -143,11 +142,8 @@ export default function ProfilePage() {
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-base sm:text-lg">Loading profile...</div>
-        </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">Loading profile...</span>
       </div>
     );
   }
@@ -157,46 +153,10 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="flex items-center gap-2 sm:gap-3">
-              <Image 
-                src="/logo.png" 
-                alt="Aura Logo" 
-                width={28} 
-                height={28} 
-                className="rounded-lg sm:w-8 sm:h-8"
-              />
-              <span className="text-xl sm:text-2xl font-bold text-gray-900">Aura</span>
-            </Link>
-            <div className="flex items-center gap-2 sm:gap-4">
-              {user && (
-                <div className="hidden sm:flex items-center gap-3">
-                  {user.photoURL && (
-                    <img 
-                      src={user.photoURL} 
-                      alt={user.displayName || 'User'} 
-                      className="w-8 h-8 rounded-full"
-                    />
-                  )}
-                  <span className="text-sm text-gray-600">
-                    {user.displayName || 'User'}
-                  </span>
-                </div>
-              )}
-              <Link href="/dashboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      <Nav showBack backHref="/dashboard" />
 
-      {/* Profile Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
+      <main className="max-w-2xl mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           <div className="text-center text-gray-900 mb-8 sm:mb-12">
             <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">Your Aura Profile</h1>
@@ -204,15 +164,11 @@ export default function ProfilePage() {
           </div>
 
           {error && (
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              {error}
-            </div>
+            <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>
           )}
 
           {success && (
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg text-green-600 text-sm">
-              {success}
-            </div>
+            <p className="mb-4 text-green-600 dark:text-green-400 text-sm">{success}</p>
           )}
 
           {/* User Info */}

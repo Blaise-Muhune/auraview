@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Nav } from "@/components/Nav";
+import { useEffect, useState, useCallback } from "react";
 import { use } from "react";
 import { getUserProfile, UserProfile } from "@/lib/firestore";
 
@@ -15,24 +15,14 @@ interface ViewProfilePageProps {
 
 export default function ViewProfilePage({ params }: ViewProfilePageProps) {
   const { user, loading } = useAuth();
-  const router = useRouter();
   const { id } = use(params);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login');
-      return;
-    }
-
-    if (id) {
-      loadProfile();
-    }
-  }, [user, loading, id, router]);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
+    if (!id) return;
     try {
       const userProfile = await getUserProfile(id);
       if (!userProfile) {
@@ -40,97 +30,66 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
         return;
       }
       setProfile(userProfile);
-    } catch (err) {
+    } catch {
       setError('Failed to load profile. Please try again later.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (id) loadProfile();
+  }, [id, loadProfile]);
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-lg">Loading profile...</div>
-        </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">Loading profile...</span>
       </div>
     );
   }
 
-  if (!user) {
-    return null;
-  }
-
   if (error || !profile) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <Link href="/dashboard" className="text-2xl font-bold text-gray-900">Aura</Link>
-            </div>
-          </div>
-        </nav>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-          <div className="max-w-md mx-auto text-center">
-            <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-200">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Profile Not Found</h2>
-              <p className="text-gray-600 mb-6">{error || 'The profile you are looking for does not exist.'}</p>
-              <Link href="/dashboard" className="inline-block px-6 py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm">
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref={user ? '/dashboard' : '/'} showAuth={!user} />
+        <main className="max-w-md mx-auto px-4 py-12 text-center">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Profile Not Found</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error || 'The profile you are looking for does not exist.'}</p>
+          <Link href={user ? '/dashboard' : '/'} className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90">
+            {user ? 'Back to Dashboard' : 'Back to home'}
+          </Link>
         </main>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/dashboard" className="text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex items-center gap-4">
-              {user && (
-                <div className="flex items-center gap-3">
-                  {user.photoURL && (
-                    <img 
-                      src={user.photoURL} 
-                      alt={user.displayName || 'User'} 
-                      className="w-8 h-8 rounded-full"
-                    />
-                  )}
-                  <span className="text-sm text-gray-600">
-                    {user.displayName || 'User'}
-                  </span>
-                </div>
-              )}
-              <Link href="/dashboard" className="px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700">
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+  const profileUrl = typeof window !== 'undefined' ? `${window.location.origin}/profile/${id}` : '';
+  const isOwnProfile = user?.uid === profile.id;
 
-      {/* Profile Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center text-gray-900 mb-12">
+  const handleCopyLink = async () => {
+    if (!profileUrl) return;
+    try {
+      await navigator.clipboard.writeText(profileUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy link');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      <Nav showBack backHref={user ? '/dashboard' : '/'} showAuth={!user} />
+
+      <main className="max-w-2xl mx-auto px-4 py-8">
+        <div className="text-center text-gray-900 dark:text-gray-100 mb-12">
           <h1 className="text-4xl font-bold mb-4">Aura Profile</h1>
-          <p className="text-xl text-gray-600">Learn about this person&apos;s aura and achievements</p>
+          <p className="text-xl text-gray-600 dark:text-gray-400">Learn about this person&apos;s aura and achievements</p>
         </div>
 
         {/* User Info */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 mb-8">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8 mb-8">
           <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8">
             {profile.photoURL && (
               <img 
@@ -140,28 +99,49 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
               />
             )}
             <div className="text-center md:text-left">
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">{profile.displayName || 'User'}</h2>
-              <p className="text-gray-600 mb-4">{profile.email}</p>
-              <div className="inline-block p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200">
-                <div className="text-3xl font-bold text-blue-600">{profile.totalAura.toLocaleString()}</div>
-                <div className="text-gray-600 text-sm">Total Aura</div>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">{profile.displayName || 'User'}</h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">{profile.email}</p>
+              <div className="inline-block p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 rounded-xl border border-blue-200 dark:border-blue-800">
+                <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{profile.totalAura.toLocaleString()}</div>
+                <div className="text-gray-600 dark:text-gray-400 text-sm">Total Aura</div>
               </div>
             </div>
           </div>
           
-          {/* Rate Button - Only show if not viewing own profile */}
-          {user.uid !== profile.id && (
-            <div className="border-t border-gray-200 pt-6">
+          {/* Share link (own profile) or Give aura (others) */}
+          {isOwnProfile ? (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <div className="flex flex-col items-center gap-4 text-center">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Share your profile</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-sm">Post this link on Instagram, TikTok, or anywhere so friends can give you aura</p>
+                <div className="flex items-center gap-2 w-full max-w-md">
+                  <input
+                    type="text"
+                    readOnly
+                    value={profileUrl}
+                    className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-sm truncate"
+                  />
+                  <button
+                    onClick={handleCopyLink}
+                    className="flex-shrink-0 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                  >
+                    {copied ? 'Copied!' : 'Copy link'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
               <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                 <div className="text-center md:text-left">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Rate This User</h3>
-                  <p className="text-gray-600 text-sm">Share your aura points with this person</p>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Give them aura</h3>
+                  <p className="text-gray-600 dark:text-gray-400 text-sm">Share your aura points with {profile.displayName || 'this person'}</p>
                 </div>
-                <Link 
-                  href={`/rate-user/${profile.id}`}
+                <Link
+                  href={user ? `/rate-user/${profile.id}` : `/login?redirect=${encodeURIComponent(`/rate-user/${profile.id}`)}`}
                   className="px-6 py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm"
                 >
-                  Rate User
+                  {user ? 'Give aura' : 'Log in to give aura'}
                 </Link>
               </div>
             </div>
@@ -339,8 +319,8 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
 
         {/* Back Button */}
         <div className="text-center">
-          <Link href="/dashboard" className="inline-block px-6 py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm">
-            Back to Dashboard
+          <Link href={user ? '/dashboard' : '/'} className="inline-block px-6 py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm">
+            {user ? 'Back to Dashboard' : 'Back to home'}
           </Link>
         </div>
       </main>

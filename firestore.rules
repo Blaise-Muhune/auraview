@@ -2,16 +2,23 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Famous person ratings: public read (for leaderboard), write requires auth
+    match /famousPersonRatings/{ratingId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.fromUserId;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.fromUserId;
+    }
+
     // Allow authenticated users to read and write to all collections
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
     
-    // Specific rules for groups collection
+    // Specific rules for groups collection (public read for leaderboard)
     match /groups/{groupId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create: if request.auth != null && 
-        request.auth.uid == resource.data.createdBy;
+        request.auth.uid == request.resource.data.createdBy;
       allow update: if request.auth != null && 
         (request.auth.uid == resource.data.createdBy || 
          request.auth.uid in resource.data.participants);
@@ -19,18 +26,24 @@ service cloud.firestore {
         request.auth.uid == resource.data.createdBy;
     }
     
-    // Specific rules for users collection
+    // Specific rules for users collection (public profiles for shareable links)
     match /users/{userId} {
-      allow read: if request.auth != null;
+      allow read: if true;  // Public profiles so people can view/share
       allow write: if request.auth != null && 
         request.auth.uid == userId;
     }
     
-    // Specific rules for ratings collection
+    // userProfiles (if used - e.g. by getUserProfilesByIds)
+    match /userProfiles/{profileId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Specific rules for ratings collection (public read for leaderboard)
     match /ratings/{ratingId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create: if request.auth != null && 
-        request.auth.uid == resource.data.fromUserId;
+        request.auth.uid == request.resource.data.fromUserId;
       allow update, delete: if request.auth != null && 
         request.auth.uid == resource.data.fromUserId;
     }

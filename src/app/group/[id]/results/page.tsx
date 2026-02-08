@@ -1,11 +1,16 @@
 'use client';
 
 import Link from "next/link";
+import { useRef } from "react";
+import html2canvas from "html2canvas";
 import { useAuth } from "@/hooks/useAuth";
+import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { use } from "react";
-import { getGroupById, getGroupRatings, getUserProfilesByIds, getUserDisplayName, Rating, GroupSession, UserProfile } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getUserProfilesByIds, getUserDisplayName, isVotingClosed, Rating, GroupSession, UserProfile } from "@/lib/firestore";
+import { generateRankCard } from "@/lib/insights";
+import { ShareableCard } from "@/components/ShareableCard";
 
 interface ResultsPageProps {
   params: Promise<{
@@ -34,6 +39,9 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [expandedRatings, setExpandedRatings] = useState<string[]>([]);
   const [ratingPages, setRatingPages] = useState<{[key: string]: number}>({});
+  const [sharedCardUserId, setSharedCardUserId] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     if (!loading && !user) {
@@ -193,21 +201,59 @@ export default function ResultsPage({ params }: ResultsPageProps) {
     );
   };
 
+  const captureAndShareCard = async (ranking: UserRanking, rank: number, card: { headline: string; subline: string }) => {
+    const el = cardRefs.current[ranking.userId];
+    if (!el) return;
+    setIsCapturing(true);
+    try {
+      const canvas = await html2canvas(el, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setIsCapturing(false);
+          return;
+        }
+        const file = new File([blob], `aura-${ranking.displayName.replace(/\s/g, '-')}-rank-${rank}.png`, { type: 'image/png' });
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({
+            title: `${ranking.displayName}'s Aura`,
+            text: card.headline,
+            files: [file],
+          });
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = file.name;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+        setSharedCardUserId(ranking.userId);
+        setTimeout(() => setSharedCardUserId(null), 2000);
+      }, 'image/png', 1);
+    } catch (err) {
+      console.error('Capture failed:', err);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   const getAuraLevel = (totalAura: number) => {
-    if (totalAura >= 5000) return { level: 'Legendary', color: 'text-purple-600', bgColor: 'bg-purple-50' };
-    if (totalAura >= 3000) return { level: 'Epic', color: 'text-blue-600', bgColor: 'bg-blue-50' };
-    if (totalAura >= 1500) return { level: 'Rare', color: 'text-green-600', bgColor: 'bg-green-50' };
-    if (totalAura >= 800) return { level: 'Common', color: 'text-gray-600', bgColor: 'bg-gray-50' };
-    return { level: 'Basic', color: 'text-gray-500', bgColor: 'bg-gray-50' };
+    if (totalAura >= 5000) return { level: 'Deeply appreciated', color: 'text-purple-600', bgColor: 'bg-purple-50' };
+    if (totalAura >= 3000) return { level: 'Really valued', color: 'text-blue-600', bgColor: 'bg-blue-50' };
+    if (totalAura >= 1500) return { level: 'Well seen', color: 'text-green-600', bgColor: 'bg-green-50' };
+    if (totalAura >= 800) return { level: 'Noticed', color: 'text-gray-600', bgColor: 'bg-gray-50' };
+    return { level: 'Getting started', color: 'text-gray-500', bgColor: 'bg-gray-50' };
   };
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-base sm:text-lg">Loading group results...</div>
-        </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">Loading results...</span>
       </div>
     );
   }
@@ -218,91 +264,156 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
   if (error || !group) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <Link href="/dashboard" className="text-xl sm:text-2xl font-bold text-gray-900">Aura</Link>
-            </div>
-          </div>
-        </nav>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-20">
-          <div className="max-w-md mx-auto text-center">
-            <div className="bg-white rounded-xl p-6 sm:p-8 shadow-sm border border-gray-200">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="h-6 w-6 sm:h-8 sm:w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-              </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Group Not Found</h2>
-              <p className="text-gray-600 mb-6 text-sm sm:text-base">{error || 'The group you are looking for does not exist.'}</p>
-              <Link href="/dashboard" className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-sm sm:text-base">
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref="/dashboard" />
+        <main className="max-w-md mx-auto px-4 py-12 text-center">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Group Not Found</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error || 'The group you are looking for does not exist.'}</p>
+          <Link href="/dashboard" className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90">
+            Back to Dashboard
+          </Link>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href={`/group/${group.id}`} className="text-xl sm:text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex gap-2 sm:gap-4">
-              <Link href={`/group/${group.id}`} className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm sm:text-base">
-                Back to Group
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      <Nav showBack backHref="/my-groups" />
 
-      {/* Results Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center text-gray-900 mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">Group Results</h1>
-            <p className="text-lg sm:text-xl text-gray-600">See how everyone ranked in {group.name}</p>
+      <main className="max-w-2xl mx-auto px-4 py-8">
+          <div className="text-center text-gray-900 dark:text-gray-100 mb-6">
+            <h1 className="text-2xl font-bold mb-2">What Friends Appreciate</h1>
+            <p className="text-gray-600 dark:text-gray-400">Insights from {group.name}</p>
+            {(() => {
+              const uniqueVoters = new Set(ratings.map(r => r.fromUserId)).size;
+              const votingClosed = isVotingClosed(group, uniqueVoters);
+              if (!votingClosed) {
+                return (
+                  <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
+                    Voting is still open. Shareable cards will appear when voting closes.
+                  </p>
+                );
+              }
+              return null;
+            })()}
           </div>
 
-          {/* Group Stats */}
-          <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200 mb-6 sm:mb-8">
-            <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
+          <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 mb-6">
+            <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <div className="text-xl sm:text-2xl font-bold text-blue-600">{rankings.length}</div>
-                <div className="text-gray-600 text-xs sm:text-sm">Participants</div>
+                <div className="text-xl font-bold text-gray-900 dark:text-gray-100">{rankings.length}</div>
+                <div className="text-gray-600 dark:text-gray-400 text-xs">Participants</div>
               </div>
               <div>
-                <div className="text-xl sm:text-2xl font-bold text-green-600">{ratings.length}</div>
-                <div className="text-gray-600 text-xs sm:text-sm">Ratings Given</div>
+                <div className="text-xl font-bold text-gray-900 dark:text-gray-100">{ratings.length}</div>
+                <div className="text-gray-600 dark:text-gray-400 text-xs">Ratings</div>
               </div>
               <div>
-                <div className="text-xl sm:text-2xl font-bold text-purple-600">
+                <div className="text-xl font-bold text-gray-900 dark:text-gray-100">
                   {rankings.reduce((sum, rank) => sum + rank.totalPoints, 0).toLocaleString()}
                 </div>
-                <div className="text-gray-600 text-xs sm:text-sm">Total Points</div>
+                <div className="text-gray-600 dark:text-gray-400 text-xs">Points</div>
               </div>
             </div>
           </div>
 
-          {/* Rankings */}
-          <div className="bg-white rounded-xl p-4 sm:p-8 shadow-sm border border-gray-200 mb-6 sm:mb-8">
-            <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4 sm:mb-6">Aura Rankings</h3>
+          {/* Shareable rank cards - only when voting is closed */}
+          {(() => {
+            const uniqueVoters = new Set(ratings.map(r => r.fromUserId)).size;
+            const votingClosed = isVotingClosed(group, uniqueVoters);
+            if (!votingClosed) return null;
+
+            return (
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Share your ranking</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Voting is closed. Share your card with friends.</p>
+                {rankings.map((ranking, index) => {
+              const rank = index + 1;
+              const card = generateRankCard({
+                rank,
+                totalInGroup: rankings.length,
+                groupName: group.name,
+                displayName: ranking.displayName,
+                totalAura: ranking.totalAura,
+              });
+              const auraLevel = getAuraLevel(ranking.totalAura);
+              const isCurrentUser = ranking.userId === user.uid;
+              const isShared = sharedCardUserId === ranking.userId;
+
+              return (
+                <div
+                  key={ranking.userId}
+                  className={`relative border rounded-lg p-5 mb-4 ${
+                    isCurrentUser
+                      ? 'border-gray-400 dark:border-gray-500 bg-gray-50 dark:bg-gray-900 ring-2 ring-gray-300 dark:ring-gray-600'
+                      : 'border-gray-200 dark:border-gray-800'
+                  }`}
+                >
+                  {/* Off-screen card for image capture - fixed position outside viewport */}
+                  <div
+                    ref={(el) => { cardRefs.current[ranking.userId] = el; }}
+                    className="absolute left-[-9999px] top-0"
+                    style={{ width: 360, height: 450 }}
+                  >
+                    <ShareableCard
+                      displayName={ranking.displayName}
+                      rank={rank}
+                      totalInGroup={rankings.length}
+                      groupName={group.name}
+                      totalAura={ranking.totalAura}
+                      auraLevel={auraLevel.level}
+                      headline={card.headline}
+                      subline={card.subline}
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                        {ranking.displayName} {isCurrentUser && '(You)'}
+                      </p>
+                      <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{card.headline}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{card.subline}</p>
+                    </div>
+                    <button
+                      onClick={() => captureAndShareCard(ranking, rank, card)}
+                      disabled={isCapturing}
+                      className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md font-medium text-sm"
+                    >
+                      {isCapturing ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          {isShared ? 'Saved!' : 'Share image'}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+              </div>
+            );
+          })()}
+
+          <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 mb-6">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">What friends appreciate</h3>
             
             {rankings.length === 0 ? (
-              <div className="text-center text-gray-500 py-6 sm:py-8">
+              <div className="text-center text-gray-500 dark:text-gray-400 py-8">
                 <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <svg className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <p className="text-gray-900 font-medium text-sm sm:text-base">No ratings submitted yet.</p>
-                <p className="text-xs sm:text-sm mt-2 text-gray-600">Be the first to rate your friends!</p>
+                <p className="text-gray-900 dark:text-gray-100 font-medium text-sm">No appreciation shared yet.</p>
+                <p className="text-xs mt-2 text-gray-600 dark:text-gray-400">Be the first to share!</p>
               </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
@@ -311,10 +422,10 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                   const auraLevel = getAuraLevel(ranking.totalAura);
                   
                   return (
-                    <div key={ranking.userId} className={`border rounded-lg p-3 sm:p-6 transition-all ${
+                    <div key={ranking.userId} className={`border rounded-md p-4 mb-3 ${
                       ranking.userId === user.uid 
-                        ? 'border-blue-300 bg-blue-50' 
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-gray-400 dark:border-gray-600 bg-gray-50 dark:bg-gray-900' 
+                        : 'border-gray-200 dark:border-gray-700'
                     }`}>
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
                         <div className="flex items-center gap-2 sm:gap-4">
@@ -323,7 +434,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                             {ranking.displayName.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-gray-900 font-medium flex flex-wrap items-center gap-1 sm:gap-2 text-sm sm:text-base">
+                            <div className="text-gray-900 dark:text-gray-100 font-medium flex flex-wrap items-center gap-2 text-sm">
                               <span className="truncate">{ranking.displayName}</span>
                               {ranking.isCreator && (
                                 <span className="text-xs bg-purple-100 text-purple-700 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full font-medium whitespace-nowrap">
@@ -337,16 +448,16 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                               )}
                             </div>
                             <div className={`text-xs sm:text-sm font-medium ${auraLevel.color}`}>
-                              {auraLevel.level} Aura
+                              {auraLevel.level}
                             </div>
                           </div>
                         </div>
                         
                         <div className="text-right sm:text-left">
-                          <div className="text-xl sm:text-2xl font-bold text-gray-900">
+                          <div className="text-xl font-bold text-gray-900 dark:text-gray-100">
                             {ranking.totalAura.toLocaleString()}
                           </div>
-                          <div className="text-gray-500 text-xs sm:text-sm">
+                          <div className="text-gray-500 dark:text-gray-400 text-xs">
                             {ranking.totalPoints.toLocaleString()} + {ranking.baseAura} base
                           </div>
                         </div>
@@ -357,10 +468,10 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                         <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200">
                           <button
                             onClick={() => toggleRatings(ranking.userId)}
-                            className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-600 mb-2 hover:text-gray-800 transition-colors"
+                            className="flex items-center justify-between w-full text-xs text-gray-600 dark:text-gray-400 mb-2 hover:text-gray-900 dark:hover:text-gray-200"
                           >
                             <span>
-                              Received {ranking.ratingsReceived.length} rating{ranking.ratingsReceived.length !== 1 ? 's' : ''}
+                              {ranking.ratingsReceived.length} friend{ranking.ratingsReceived.length !== 1 ? 's' : ''} shared what they appreciate
                             </span>
                             <svg 
                               className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${expandedRatings.includes(ranking.userId) ? 'rotate-180' : ''}`} 
@@ -376,17 +487,17 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                             <div className="space-y-2">
                               {/* Paginated Ratings */}
                               {getPaginatedRatings(ranking.ratingsReceived, ranking.userId).map((rating, ratingIndex) => (
-                                <div key={ratingIndex} className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs sm:text-sm bg-gray-50 rounded p-2 sm:p-3 gap-1 sm:gap-2">
+                                <div key={ratingIndex} className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs bg-gray-50 dark:bg-gray-800 rounded p-3 gap-2">
                                   <div className="flex items-center gap-1 sm:gap-2">
                                     <svg className="h-3 w-3 sm:h-4 sm:w-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                                     </svg>
-                                    <span className="text-gray-700 font-medium">{rating.points} points</span>
+                                    <span className="text-gray-700 dark:text-gray-300 font-medium">{rating.points} points</span>
                                     {rating.reason && (
-                                      <span className="text-gray-500 truncate">- {rating.reason}</span>
+                                      <span className="text-gray-500 dark:text-gray-400 truncate">- {rating.reason}</span>
                                     )}
                                   </div>
-                                  <div className="text-gray-500 text-right sm:text-left">
+                                  <div className="text-gray-500 dark:text-gray-400 text-right sm:text-left">
                                     from {rating.fromUserDisplayName}
                                   </div>
                                 </div>
@@ -398,17 +509,17 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                                   <button
                                     onClick={() => changePage(ranking.userId, -1)}
                                     disabled={getCurrentPage(ranking.userId) === 1}
-                                    className="px-2 py-1 text-xs bg-gray-100 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors"
+                                    className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 dark:hover:bg-gray-700"
                                   >
                                     Previous
                                   </button>
-                                  <span className="text-xs text-gray-600">
+                                  <span className="text-xs text-gray-600 dark:text-gray-400">
                                     Page {getCurrentPage(ranking.userId)} of {Math.ceil(ranking.ratingsReceived.length / 10)}
                                   </span>
                                   <button
                                     onClick={() => changePage(ranking.userId, 1)}
                                     disabled={getCurrentPage(ranking.userId) >= Math.ceil(ranking.ratingsReceived.length / 10)}
-                                    className="px-2 py-1 text-xs bg-gray-100 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors"
+                                    className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 dark:hover:bg-gray-700"
                                   >
                                     Next
                                   </button>
@@ -425,22 +536,22 @@ export default function ResultsPage({ params }: ResultsPageProps) {
             )}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            {!isVotingClosed(group, new Set(ratings.map(r => r.fromUserId)).size) && (
+              <Link 
+                href={`/group/${group.id}/rate`}
+                className="px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90 text-center text-sm"
+              >
+                Share Appreciation
+              </Link>
+            )}
             <Link 
-              href={`/group/${group.id}/rate`}
-              className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-center text-sm sm:text-base"
+              href="/my-groups"
+              className="px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-md text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-100 dark:hover:bg-gray-800 text-center text-sm"
             >
-              Rate Friends
-            </Link>
-            <Link 
-              href={`/group/${group.id}`}
-              className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors text-center text-sm sm:text-base"
-            >
-              Back to Group
+              My Groups
             </Link>
           </div>
-        </div>
       </main>
     </div>
   );

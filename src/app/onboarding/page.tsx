@@ -1,8 +1,7 @@
 'use client';
 
-import Link from "next/link";
-import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
+import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { updateUserProfile, ensureUserProfile } from "@/lib/firestore";
@@ -138,11 +137,8 @@ export default function OnboardingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-lg">Loading...</div>
-        </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">Loading...</span>
       </div>
     );
   }
@@ -152,52 +148,33 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row justify-between items-center h-auto sm:h-16 py-4 sm:py-0 gap-4 sm:gap-0">
-            <Link href="/" className="flex items-center gap-3">
-              <Image 
-                src="/logo.png" 
-                alt="Aura Logo" 
-                width={32} 
-                height={32} 
-                className="rounded-lg"
-              />
-              <span className="text-xl sm:text-2xl font-bold text-gray-900">Aura</span>
-            </Link>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <button
-                onClick={handleSkip}
-                className="flex-1 sm:flex-none px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-center text-sm"
-              >
-                Skip for Now
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      <Nav 
+        rightContent={
+          <button
+            onClick={handleSkip}
+            className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+          >
+            Skip for Now
+          </button>
+        }
+      />
 
-      {/* Onboarding Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
+      <main className="max-w-2xl mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center text-gray-900 mb-8 sm:mb-12">
-            <h1 className="text-3xl sm:text-4xl font-bold mb-4">Welcome to Aura!</h1>
-            <p className="text-lg sm:text-xl text-gray-600">Let&apos;s set up your profile to help others discover your aura</p>
-            <p className="text-gray-500 text-sm sm:text-base mt-2">This is optional - you can skip and add these later</p>
+          <div className="text-center text-gray-900 dark:text-gray-100 mb-8">
+            <h1 className="text-2xl font-bold mb-2">Complete your profile</h1>
+            <p className="text-gray-600 dark:text-gray-400">Optional—add anytime</p>
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              {error}
-            </div>
+            <p className="mb-6 text-red-600 dark:text-red-400 text-sm">{error}</p>
           )}
 
           {success && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-600 text-sm">
+            <p className="mb-6 text-green-600 dark:text-green-400 text-sm">
               {success}
-            </div>
+            </p>
           )}
 
           {/* User Info */}

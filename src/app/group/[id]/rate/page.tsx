@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
+import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { use } from "react";
-import { getGroupById, submitRating, GroupSession, getUserRemainingPoints, getUserProfile } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, getUserProfile } from "@/lib/firestore";
 
 interface RatePageProps {
   params: Promise<{
@@ -18,115 +19,72 @@ export default function RatePage({ params }: RatePageProps) {
   const router = useRouter();
   const { id } = use(params);
   const [group, setGroup] = useState<GroupSession | null>(null);
+  const [groupRatings, setGroupRatings] = useState<Array<{ fromUserId: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ratings, setRatings] = useState<{[key: string]: number}>({});
   // const [reasons, setReasons] = useState<{[key: string]: string}>({});
-  const [remainingGlobalPoints, setRemainingGlobalPoints] = useState(10000);
+  const POINTS_PER_PERSON = 10000;
   const [participantNames, setParticipantNames] = useState<{[key: string]: string}>({});
 
-  // Step-by-step rating system
-  const [currentStep, setCurrentStep] = useState(0);
+  // One person at a time, all questions visible
   const [currentParticipantIndex, setCurrentParticipantIndex] = useState(0);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [currentStep, setCurrentStep] = useState(0); // 0 = rating, 1 = review
+  const [alreadyRatedIds, setAlreadyRatedIds] = useState<Set<string>>(new Set());
 
-  // Aura rating questions
+  // 5 core questions - enough to mean something, not a chore
   const auraQuestions = [
     {
       id: 'presence_energy',
-      question: 'Presence & Energy',
-      description: 'The natural force they give off when they enter a space—do they command attention or subtly shift the mood?',
-      positiveLabel: 'Strong commanding presence',
-      negativeLabel: 'Weak or draining presence'
+      question: 'Presence',
+      description: 'Do they fill a room or blend in?',
+      positiveLabel: 'Lights up the room',
+      negativeLabel: 'Fades into the background'
     },
     {
       id: 'authenticity_self_vibe',
-      question: 'Authenticity & Self-Vibe',
-      description: 'How real and comfortable they are in their own skin—do they stay true to who they are?',
-      positiveLabel: 'Very authentic and comfortable',
-      negativeLabel: 'Seems inauthentic or uncomfortable'
-    },
-    {
-      id: 'style_aesthetic',
-      question: 'Style & Aesthetic',
-      description: 'Their personal visual expression—how well their appearance reflects their inner energy or uniqueness.',
-      positiveLabel: 'Unique and expressive style',
-      negativeLabel: 'Generic or mismatched style'
+      question: 'Authenticity',
+      description: 'Real or trying too hard?',
+      positiveLabel: 'Themselves',
+      negativeLabel: 'Performing'
     },
     {
       id: 'social_pull',
-      question: 'Social Pull',
-      description: 'How naturally people are drawn to them—do others want to talk to, follow, or be around them effortlessly?',
-      positiveLabel: 'Naturally magnetic and attractive',
-      negativeLabel: 'Repels or pushes people away'
+      question: 'Vibe',
+      description: 'Easy to be around?',
+      positiveLabel: 'People gravitate',
+      negativeLabel: 'Hard to connect'
     },
     {
-      id: 'emotional_impact_depth',
-      question: 'Emotional Impact & Depth',
-      description: 'The lasting feelings they leave behind—do they inspire, calm, or energize others on an emotional level?',
-      positiveLabel: 'Deeply inspiring and impactful',
-      negativeLabel: 'Emotionally draining or shallow'
+      id: 'style_aesthetic',
+      question: 'Style',
+      description: 'Does their look match who they are?',
+      positiveLabel: 'Owns it',
+      negativeLabel: 'Generic'
     },
     {
-      id: 'confidence_composure',
-      question: 'Confidence & Composure',
-      description: 'Their inner steadiness—do they carry themselves with quiet strength, even under pressure?',
-      positiveLabel: 'Steady and confident under pressure',
-      negativeLabel: 'Unsteady or easily rattled'
-    },
-    {
-      id: 'voice_communication',
-      question: 'Voice & Communication Style',
-      description: 'How they speak and express themselves—does their voice, tone, or choice of words amplify their presence?',
-      positiveLabel: 'Compelling and clear communicator',
-      negativeLabel: 'Weak or unclear communication'
-    },
-    {
-      id: 'mystery_intrigue',
-      question: 'Mystery & Intrigue',
-      description: 'The sense of fascination they spark—do they leave others curious, interested, or drawn in?',
-      positiveLabel: 'Fascinating and intriguing',
-      negativeLabel: 'Predictable or boring'
-    },
-    {
-      id: 'intentionality_purpose',
-      question: 'Intentionality & Purpose',
-      description: 'The clarity in how they move through life—do they seem to act with meaning, not just reaction?',
-      positiveLabel: 'Clear purpose and intentional',
-      negativeLabel: 'Reactive or aimless'
-    },
-    {
-      id: 'consistency_alignment',
-      question: 'Consistency & Alignment',
-      description: 'How aligned their actions, values, and image are—does everything about them feel cohesive and genuine?',
-      positiveLabel: 'Highly aligned and cohesive',
-      negativeLabel: 'Inconsistent or misaligned'
+      id: 'trustworthy',
+      question: 'Trustworthy',
+      description: 'Can you rely on them?',
+      positiveLabel: 'Has your back',
+      negativeLabel: 'Flaky'
     }
   ];
 
-  // Preset aura point values
-  const presetPoints = [
-    { label: '+1000', value: 1000, color: 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200' },
-    { label: '+500', value: 500, color: 'bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200' },
-    { label: '+200', value: 200, color: 'bg-blue-100 border-blue-300 text-blue-700 hover:bg-blue-200' },
-    { label: '+100', value: 100, color: 'bg-cyan-100 border-cyan-300 text-cyan-700 hover:bg-cyan-200' },
-    { label: '+50', value: 50, color: 'bg-teal-100 border-teal-300 text-teal-700 hover:bg-teal-200' },
-    { label: '0', value: 0, color: 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200' },
-    { label: '-50', value: -50, color: 'bg-orange-100 border-orange-300 text-orange-700 hover:bg-orange-200' },
-    { label: '-100', value: -100, color: 'bg-red-100 border-red-300 text-red-700 hover:bg-red-200' },
-    { label: '-200', value: -200, color: 'bg-red-200 border-red-400 text-red-800 hover:bg-red-300' },
-    { label: '-500', value: -500, color: 'bg-red-300 border-red-500 text-red-900 hover:bg-red-400' },
-    { label: '-1000', value: -1000, color: 'bg-red-400 border-red-600 text-red-950 hover:bg-red-500' },
+  // Quick-tap values - cohesive palette (darker in dark mode)
+  const positivePoints = [
+    { label: '+2000', value: 2000, color: 'bg-emerald-50 dark:bg-emerald-950/60 dark:border-emerald-900/60 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50' },
+    { label: '+1000', value: 1000, color: 'bg-emerald-50 dark:bg-emerald-950/60 dark:border-emerald-900/60 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50' },
+    { label: '+500', value: 500, color: 'bg-emerald-50 dark:bg-emerald-950/60 dark:border-emerald-900/60 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50' },
   ];
-
-  // const usedPoints = Object.values(ratings).reduce((sum, points) => sum + points, 0);
-  const absolutePointsUsed = Object.values(ratings).reduce((sum, points) => sum + Math.abs(points), 0);
-  // const positivePointsUsed = Object.values(ratings).reduce((sum, points) => sum + Math.max(0, points), 0);
-  const negativePointsUsed = Object.values(ratings).reduce((sum, points) => sum + Math.min(0, points), 0);
-  const remainingPoints = remainingGlobalPoints - absolutePointsUsed;
-
+  const zeroPoint = { label: '0', value: 0, color: 'bg-gray-50 dark:bg-gray-800/80 dark:border-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-600 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/80' };
+  const negativePoints = [
+    { label: '-2000', value: -2000, color: 'bg-rose-50 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 border border-rose-100 dark:border-rose-800/60 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50' },
+    { label: '-1000', value: -1000, color: 'bg-rose-50 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 border border-rose-100 dark:border-rose-800/60 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50' },
+    { label: '-500', value: -500, color: 'bg-rose-50 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 border border-rose-100 dark:border-rose-800/60 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50' },
+  ];
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
@@ -135,7 +93,6 @@ export default function RatePage({ params }: RatePageProps) {
 
     if (user && id) {
       loadGroup();
-      loadUserPoints();
     }
   }, [user, loading, id, router]);
 
@@ -145,29 +102,40 @@ export default function RatePage({ params }: RatePageProps) {
     }
   }, [group]);
 
+  // Set initial participant index to first unrated when data loads; redirect to results if all rated
+  useEffect(() => {
+    if (!group || !user) return;
+    const participantsToRate = group.participants.filter((p) => p !== user.uid);
+    const firstUnratedIdx = participantsToRate.findIndex((p) => !alreadyRatedIds.has(p));
+    if (firstUnratedIdx >= 0) {
+      setCurrentParticipantIndex(firstUnratedIdx);
+    } else if (participantsToRate.length > 0) {
+      router.replace(`/group/${group.id}/results`);
+    } else {
+      setCurrentParticipantIndex(0);
+    }
+  }, [group, alreadyRatedIds, user?.uid, router]);
+
   const loadGroup = async () => {
+    if (!user) return;
     try {
-      const groupData = await getGroupById(id);
+      const [groupData, ratingsData, ratedIds] = await Promise.all([
+        getGroupById(id),
+        getGroupRatings(id),
+        getParticipantIdsRatedByUserInGroup(id, user.uid),
+      ]);
       if (!groupData) {
         setError('Group not found');
         return;
       }
       setGroup(groupData);
+      setGroupRatings(ratingsData);
+      setAlreadyRatedIds(new Set(ratedIds));
     } catch (err) {
       console.error('Failed to load group:', err);
       setError('Failed to load group');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const loadUserPoints = async () => {
-    if (!user) return;
-    try {
-      const remaining = await getUserRemainingPoints(user.uid);
-      setRemainingGlobalPoints(remaining);
-    } catch (err) {
-      console.error('Failed to load user points:', err);
     }
   };
 
@@ -223,37 +191,31 @@ export default function RatePage({ params }: RatePageProps) {
     return participants[currentParticipantIndex];
   };
 
-  const getCurrentQuestion = () => {
-    return auraQuestions[currentQuestionIndex];
+  const getNextUnratedIndex = () => {
+    const isRated = (pid: string) => alreadyRatedIds.has(pid) || getParticipantTotalRating(pid) !== 0;
+    for (let i = currentParticipantIndex + 1; i < participants.length; i++) {
+      if (!isRated(participants[i])) return i;
+    }
+    return -1;
   };
 
-  const handleNextQuestion = () => {
-    if (currentQuestionIndex < auraQuestions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-    } else if (currentParticipantIndex < participants.length - 1) {
-      setCurrentQuestionIndex(0);
-      setCurrentParticipantIndex(currentParticipantIndex + 1);
+  const handleNextPerson = () => {
+    const nextUnrated = getNextUnratedIndex();
+    if (nextUnrated >= 0) {
+      setCurrentParticipantIndex(nextUnrated);
     } else {
-      setCurrentStep(1); // Move to review step
+      setCurrentStep(1);
     }
   };
 
-  const handlePreviousQuestion = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(currentQuestionIndex - 1);
-    } else if (currentParticipantIndex > 0) {
-      setCurrentQuestionIndex(auraQuestions.length - 1);
+  const handlePrevPerson = () => {
+    if (currentParticipantIndex > 0) {
       setCurrentParticipantIndex(currentParticipantIndex - 1);
     }
   };
 
-  const handleSkipParticipant = () => {
-    if (currentParticipantIndex < participants.length - 1) {
-      setCurrentQuestionIndex(0);
-      setCurrentParticipantIndex(currentParticipantIndex + 1);
-    } else {
-      setCurrentStep(1); // Move to review step
-    }
+  const handleSkipPerson = () => {
+    handleNextPerson();
   };
 
   const getParticipantTotalRating = (participantId: string) => {
@@ -297,14 +259,14 @@ export default function RatePage({ params }: RatePageProps) {
       });
       
       await Promise.all(ratingPromises);
-      setSuccess('Ratings submitted successfully!');
+      setSuccess('Appreciation shared!');
       
       // Redirect to group page after a short delay
       setTimeout(() => {
         if (group.id) {
-          router.push(`/group/${group.id}`);
+          router.push(`/group/${group.id}/results`);
         }
-      }, 2000);
+      }, 1500);
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit ratings');
@@ -315,11 +277,8 @@ export default function RatePage({ params }: RatePageProps) {
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-gray-600 text-base sm:text-lg">Loading group...</div>
-        </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">Loading group...</span>
       </div>
     );
   }
@@ -330,34 +289,14 @@ export default function RatePage({ params }: RatePageProps) {
 
   if (error && !group) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <Link href="/dashboard" className="text-xl sm:text-2xl font-bold text-gray-900">Aura</Link>
-              <div className="flex gap-2 sm:gap-4">
-                <Link href="/dashboard" className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
-                  Dashboard
-                </Link>
-              </div>
-            </div>
-          </div>
-        </nav>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-          <div className="max-w-md mx-auto text-center">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-8">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="h-6 w-6 sm:h-8 sm:w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-              </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Group Not Found</h2>
-              <p className="text-gray-600 mb-6 text-sm sm:text-base">{error || 'The group you are looking for does not exist.'}</p>
-              <Link href="/dashboard" className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-sm sm:text-base">
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref="/dashboard" />
+        <main className="max-w-md mx-auto px-4 py-12 text-center">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Group Not Found</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error || 'The group you are looking for does not exist.'}</p>
+          <Link href="/dashboard" className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90">
+            Back to Dashboard
+          </Link>
         </main>
       </div>
     );
@@ -367,95 +306,54 @@ export default function RatePage({ params }: RatePageProps) {
     return null;
   }
 
-  const participants = group.participants.filter(id => id !== user.uid);
+  const uniqueVoters = new Set(groupRatings.map((r: { fromUserId: string }) => r.fromUserId)).size;
+  const votingClosed = isVotingClosed(group, uniqueVoters);
+  const participants = group.participants.filter(pid => pid !== user.uid);
+
+  if (votingClosed) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref="/my-groups" />
+        <main className="max-w-md mx-auto px-4 py-12 text-center">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Voting is closed</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">
+            This group&apos;s voting period has ended. Check out the results and share your ranking card.
+          </p>
+          <Link
+            href={`/group/${group.id}/results`}
+            className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90"
+          >
+            See results
+          </Link>
+        </main>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href={`/group/${group.id}`} className="text-xl sm:text-2xl font-bold text-gray-900">Aura</Link>
-            <div className="flex items-center gap-2 sm:gap-4">
-              <Link href={`/group/${group.id}`} className="px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200 hover:border-gray-300 text-gray-700 text-sm">
-                Back to Group
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      <Nav showBack backHref="/my-groups" />
 
-      {/* Rating Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <main className="max-w-2xl mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center text-gray-900 mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold mb-2 sm:mb-3">Rate Your Friends</h1>
-            <p className="text-base sm:text-lg text-gray-600">Distribute your 10,000 aura points among group members</p>
-          </div>
-
-          {/* Compact Points Summary - Moved to be less prominent */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4 mb-4 sm:mb-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
-              <div className="flex items-center justify-center sm:justify-start gap-4 sm:gap-6">
-                <div className="text-center">
-                  <div className="text-base sm:text-lg font-bold text-blue-600">{remainingGlobalPoints.toLocaleString()}</div>
-                  <div className="text-xs text-gray-500">Available</div>
-                </div>
-                <div className="text-center">
-                  <div className={`text-base sm:text-lg font-bold ${remainingPoints >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {remainingPoints.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-gray-500">Remaining</div>
-                </div>
-                <div className="text-center">
-                  <div className={`text-base sm:text-lg font-bold ${absolutePointsUsed >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
-                    {absolutePointsUsed.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-gray-500">Used</div>
-                </div>
-              </div>
-              <div className="flex-1 sm:ml-6">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full transition-all duration-300 ${
-                      absolutePointsUsed >= 0 
-                        ? 'bg-gradient-to-r from-blue-500 to-purple-600' 
-                        : 'bg-gradient-to-r from-red-500 to-orange-500'
-                    }`}
-                    style={{ width: `${Math.min(Math.abs(absolutePointsUsed) / remainingGlobalPoints * 100, 100)}%` }}
-                  ></div>
-                </div>
-                <div className="text-xs text-gray-500 mt-1 text-center">
-                  {Math.round((Math.abs(absolutePointsUsed) / remainingGlobalPoints) * 100)}% of points used
-                </div>
-              </div>
-            </div>
-            {negativePointsUsed < 0 && (
-              <div className="mt-3 text-center text-red-600 text-xs bg-red-50 rounded-lg p-2 border border-red-200">
-                ⚠️ Using negative points (reduces aura) - Counts against limit
-              </div>
-            )}
+          <div className="text-center text-gray-900 dark:text-gray-100 mb-4">
+            <h1 className="text-xl font-bold">Share what you appreciate</h1>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">10,000 points per person</p>
           </div>
 
           {error && (
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              {error}
-            </div>
+            <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>
           )}
 
           {success && (
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg text-green-600 text-sm">
-              {success}
-            </div>
+            <p className="mb-4 text-green-600 dark:text-green-400 text-sm">{success}</p>
           )}
 
-          {/* Participants Rating - Main Focus */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-8 mb-4 sm:mb-6">
-            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6 text-center">Rate Your Friends</h3>
+          <div className="border border-gray-200 dark:border-gray-800/60 dark:bg-gray-900/30 rounded-md p-4 mb-6">
             
             {participants.length === 0 ? (
-              <div className="text-center text-gray-500 py-6 sm:py-8">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
                   <svg className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
@@ -464,188 +362,170 @@ export default function RatePage({ params }: RatePageProps) {
                 <p className="text-xs sm:text-sm mt-2">Share the group code to invite friends!</p>
               </div>
             ) : currentStep === 0 ? (
-              // Step-by-step rating interface
-              <div className="max-w-2xl mx-auto">
-                {(() => {
-                  const currentParticipant = getCurrentParticipant();
-                  const currentQuestion = getCurrentQuestion();
-                  
-                  if (!currentParticipant || !currentQuestion) return null;
-                  
-                  const participantName = currentParticipant === group.createdBy 
-                    ? `${group.createdByDisplayName} (Creator)` 
-                    : participantNames[currentParticipant] || 'Loading...';
-                  
-                  const questionKey = `${currentParticipant}_${currentQuestion.id}`;
-                  const currentRating = ratings[questionKey] || 0;
-                  
-                  return (
-                    <div className="text-center">
-                      {/* Progress */}
-                      <div className="mb-6 sm:mb-8">
-                        <div className="text-xs sm:text-sm text-gray-500 mb-2 sm:mb-3">
-                          Rating {currentParticipantIndex + 1} of {participants.length} • 
-                          Question {currentQuestionIndex + 1} of {auraQuestions.length}
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2 sm:h-3">
-                          <div 
-                            className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 sm:h-3 rounded-full transition-all duration-300"
-                            style={{ 
-                              width: `${((currentParticipantIndex * auraQuestions.length + currentQuestionIndex + 1) / (participants.length * auraQuestions.length)) * 100}%` 
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      {/* Current Participant */}
-                      <div className="mb-6 sm:mb-8">
-                        <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xl sm:text-2xl mx-auto mb-3 sm:mb-4">
-                          {currentParticipantIndex + 1}
-                        </div>
-                        <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 sm:mb-3">{participantName}</h3>
-                        <Link 
-                          href={`/profile/${currentParticipant}`}
-                          className="inline-block px-3 sm:px-4 py-2 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                        >
-                          View Profile
-                        </Link>
-                      </div>
-
-                      {/* Current Question */}
-                      <div className="mb-6 sm:mb-8">
-                        <h4 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 sm:mb-3">{currentQuestion.question}</h4>
-                        <p className="text-gray-600 mb-4 sm:mb-6 text-sm sm:text-base">{currentQuestion.description}</p>
-                        
-                        {/* Rating Input */}
-                        <div className="mb-4 sm:mb-6">
-                          <input
-                            type="number"
-                            min="-1000"
-                            max="1000"
-                            value={currentRating || ''}
-                            onChange={(e) => handleQuestionRating(currentParticipant, currentQuestion.id, parseInt(e.target.value) || 0)}
-                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-400 focus:bg-white transition-colors text-center text-base sm:text-lg"
-                            placeholder="0"
-                          />
-                        </div>
-
-                        {/* Preset Points */}
-                        <div className="mb-4 sm:mb-6">
-                          <div className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Quick Select:</div>
-                          <div className="flex flex-wrap gap-1.5 sm:gap-2 justify-center">
-                            {presetPoints.map((preset) => {
-                              const isSelected = currentRating === preset.value;
-                              const isDisabled = Math.abs(preset.value) > remainingPoints + Math.abs(currentRating);
-                              
-                              return (
-                                <button
-                                  key={preset.value}
-                                  type="button"
-                                  onClick={() => handleQuestionRating(currentParticipant, currentQuestion.id, preset.value)}
-                                  disabled={isDisabled}
-                                  className={`px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg border transition-all ${
-                                    isSelected 
-                                      ? 'ring-2 ring-blue-500 ring-offset-2' 
-                                      : preset.color
-                                  } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
-                                >
-                                  {preset.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Question Labels */}
-                        <div className="flex justify-between text-xs sm:text-sm text-gray-500 mb-4 sm:mb-6">
-                          <span className="text-left max-w-[40%]">{currentQuestion.negativeLabel}</span>
-                          <span className="text-right max-w-[40%]">{currentQuestion.positiveLabel}</span>
-                        </div>
-                      </div>
-
-                      {/* Navigation */}
-                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-0 sm:justify-between sm:items-center">
-                        <button
-                          onClick={handlePreviousQuestion}
-                          disabled={currentParticipantIndex === 0 && currentQuestionIndex === 0}
-                          className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-sm sm:text-base order-2 sm:order-1"
-                        >
-                          Previous
-                        </button>
-                        
-                        <button
-                          onClick={handleSkipParticipant}
-                          className="px-4 sm:px-6 py-2.5 sm:py-3 bg-orange-100 border border-orange-300 rounded-lg text-orange-700 font-semibold hover:bg-orange-200 transition-colors shadow-sm text-sm sm:text-base order-1 sm:order-2"
-                        >
-                          Skip Participant
-                        </button>
-                        
-                        <button
-                          onClick={handleNextQuestion}
-                          className="px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-colors shadow-sm text-sm sm:text-base order-3"
-                        >
-                          {currentQuestionIndex === auraQuestions.length - 1 && currentParticipantIndex === participants.length - 1 
-                            ? 'Finish Rating' 
-                            : 'Next'}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : (
-              // Review step
-              <div className="max-w-4xl mx-auto">
-                <div className="text-center mb-6 sm:mb-8">
-                  <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-4">Review Your Ratings</h3>
-                  <p className="text-gray-600 text-sm sm:text-base">Review your aura ratings before submitting</p>
-                </div>
+              // One person, all 5 questions - tap to vote fast
+              (() => {
+                const currentParticipant = getCurrentParticipant();
+                if (!currentParticipant) return null;
                 
-                <div className="space-y-4 sm:space-y-6">
-                  {participants.map((participantId, index) => {
-                    const participantName = participantId === group.createdBy 
-                      ? `${group.createdByDisplayName} (Creator)` 
-                      : participantNames[participantId] || 'Loading...';
-                    
-                    const totalRating = getParticipantTotalRating(participantId);
-                    
-                    return (
-                      <div key={participantId} className="border border-gray-200 rounded-lg p-4 sm:p-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3 sm:gap-0">
-                          <div className="flex items-center gap-3 sm:gap-4">
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm sm:text-lg">
-                              {index + 1}
-                            </div>
-                            <div>
-                              <h4 className="text-base sm:text-lg font-semibold text-gray-900">{participantName}</h4>
-                              <div className={`text-base sm:text-lg font-bold ${totalRating >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                Total: {totalRating > 0 ? '+' : ''}{totalRating} aura points
-                              </div>
-                            </div>
-                          </div>
-                          <Link 
-                            href={`/profile/${participantId}`}
-                            className="px-3 py-1 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm self-start sm:self-auto"
+                const participantName = currentParticipant === group.createdBy 
+                  ? group.createdByDisplayName 
+                  : participantNames[currentParticipant] || '...';
+                
+                const totalGiven = auraQuestions.reduce((sum, q) => {
+                  const key = `${currentParticipant}_${q.id}`;
+                  return sum + (ratings[key] ?? 0);
+                }, 0);
+                // Map -10000..+10000 to 0%..100% (50% = neutral)
+                const barPosition = Math.max(0, Math.min(100, ((totalGiven + POINTS_PER_PERSON) / (POINTS_PER_PERSON * 2)) * 100));
+                const isPositive = totalGiven >= 0;
+                const fillWidth = Math.abs(barPosition - 50);
+                
+                const isParticipantRated = (pid: string) => alreadyRatedIds.has(pid) || getParticipantTotalRating(pid) !== 0;
+                return (
+                  <div className="max-w-lg mx-auto">
+                    {/* Participant nav - dots for each person, rated = filled color */}
+                    <div className="flex flex-wrap justify-center gap-2 mb-6">
+                      {participants.map((pid, idx) => {
+                        const name = pid === group.createdBy ? group.createdByDisplayName : participantNames[pid] || '...';
+                        const rated = isParticipantRated(pid);
+                        const isCurrent = idx === currentParticipantIndex;
+                        return (
+                          <button
+                            key={pid}
+                            type="button"
+                            onClick={() => setCurrentParticipantIndex(idx)}
+                            className={`min-w-[2rem] px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                              isCurrent
+                                ? 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-gray-950'
+                                : rated
+                                  ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/50'
+                                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            }`}
+                            title={name}
                           >
-                            View Profile
-                          </Link>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                          {auraQuestions.map(question => {
-                            const questionKey = `${participantId}_${question.id}`;
-                            const questionRating = ratings[questionKey] || 0;
-                            
-                            return (
-                              <div key={question.id} className="bg-gray-50 rounded-lg p-2 sm:p-3">
-                                <div className="text-xs sm:text-sm font-medium text-gray-900 mb-1">{question.question}</div>
-                                <div className={`text-xs sm:text-sm ${questionRating >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {questionRating > 0 ? '+' : ''}{questionRating} points
+                            {name.split(' ')[0].slice(0, 8)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Who we're rating + total given */}
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 text-center">{participantName}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
+                      {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given
+                    </p>
+                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-6 relative">
+                      <div className="absolute left-1/2 top-0 w-0.5 h-full bg-gray-400 dark:bg-gray-600 -translate-x-px z-10" />
+                      <div 
+                        className="absolute top-0 h-full transition-all"
+                        style={{ 
+                          width: `${fillWidth}%`,
+                          left: isPositive ? '50%' : `${barPosition}%`,
+                          backgroundColor: isPositive ? 'rgb(34 197 94)' : 'rgb(239 68 68)',
+                          borderRadius: isPositive ? '0 9999px 9999px 0' : '9999px 0 0 9999px'
+                        }}
+                      />
+                    </div>
+                    
+                    {/* All 5 questions - compact rows with quick-tap */}
+                    <div className="space-y-4">
+                      {auraQuestions.map((q) => {
+                        const key = `${currentParticipant}_${q.id}`;
+                        const val = ratings[key] ?? 0;
+                        return (
+                          <div key={q.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 py-3 border-b border-gray-100 dark:border-gray-800/60 last:border-0">
+                            <div className="flex-shrink-0 sm:w-28">
+                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{q.question}</span>
+                            </div>
+                            <div className="flex items-stretch gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleQuestionRating(currentParticipant, q.id, zeroPoint.value)}
+                                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center justify-center self-center ${
+                                  val === zeroPoint.value ? 'ring-2 ring-blue-500 dark:ring-blue-600 dark:ring-offset-gray-950 ring-offset-1 ' + zeroPoint.color : zeroPoint.color + ' opacity-80 hover:opacity-100'
+                                }`}
+                              >
+                                {zeroPoint.label}
+                              </button>
+                              <div className="flex flex-col gap-2">
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {positivePoints.map((p) => (
+                                    <button
+                                      key={p.value}
+                                      type="button"
+                                      onClick={() => handleQuestionRating(currentParticipant, q.id, p.value)}
+                                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+                                        val === p.value ? 'ring-2 ring-blue-500 dark:ring-blue-600 dark:ring-offset-gray-950 ring-offset-1 ' + p.color : p.color + ' opacity-80 hover:opacity-100'
+                                      }`}
+                                    >
+                                      {p.label}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {negativePoints.map((p) => (
+                                    <button
+                                      key={p.value}
+                                      type="button"
+                                      onClick={() => handleQuestionRating(currentParticipant, q.id, p.value)}
+                                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+                                        val === p.value ? 'ring-2 ring-blue-500 dark:ring-blue-600 dark:ring-offset-gray-950 ring-offset-1 ' + p.color : p.color + ' opacity-80 hover:opacity-100'
+                                      }`}
+                                    >
+                                      {p.label}
+                                    </button>
+                                  ))}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    {/* Nav - big tap targets */}
+                    <div className="flex gap-3 mt-8">
+                      <button
+                        onClick={handlePrevPerson}
+                        disabled={currentParticipantIndex === 0}
+                        className="flex-1 py-3 px-4 rounded-md bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        ← Back
+                      </button>
+                      <button
+                        onClick={handleSkipPerson}
+                        className="py-3 px-4 rounded-md bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-600 dark:text-gray-500 font-medium hover:bg-gray-200 dark:hover:bg-gray-700/80"
+                      >
+                        Skip
+                      </button>
+                      <button
+                        onClick={handleNextPerson}
+                        className="flex-1 py-3 px-4 rounded-md bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500"
+                      >
+                        {getNextUnratedIndex() === -1 ? 'Done →' : 'Next →'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              // Quick review + submit
+              <div className="max-w-md mx-auto">
+                <div className="text-center mb-6">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">Ready to submit</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm">Summary of what you shared</p>
+                </div>
+                <div className="space-y-2 mb-6">
+                  {participants.map((participantId) => {
+                    const name = participantId === group.createdBy 
+                      ? group.createdByDisplayName 
+                      : participantNames[participantId] || '...';
+                    const total = getParticipantTotalRating(participantId);
+                    return (
+                      <div key={participantId} className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700/60">
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{name}</span>
+                        <span className={`font-semibold ${total >= 0 ? 'text-green-600 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'}`}>
+                          {total > 0 ? '+' : ''}{total}
+                        </span>
                       </div>
                     );
                   })}
@@ -654,42 +534,31 @@ export default function RatePage({ params }: RatePageProps) {
             )}
           </div>
 
-          {/* Submit Button */}
-          <div className="text-center">
-            {currentStep === 1 ? (
-              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-                <button
-                  onClick={() => setCurrentStep(0)}
-                  className="px-6 sm:px-8 py-3 sm:py-4 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 font-semibold text-base sm:text-lg hover:bg-gray-200 transition-colors shadow-sm"
-                >
-                  Back to Rating
-                </button>
-                
-                <button
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || participants.length === 0}
-                  className="px-6 sm:px-8 py-3 sm:py-4 bg-blue-600 rounded-lg text-white font-semibold text-base sm:text-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Submitting Ratings...
-                    </span>
-                  ) : (
-                    <span className="flex items-center justify-center gap-2">
-                      Submit All Ratings
-                    </span>
-                  )}
-                </button>
-              </div>
-            ) : null}
-            
-            {negativePointsUsed < 0 && (
-              <p className="text-orange-600 text-xs sm:text-sm mt-2 bg-orange-50 rounded-lg p-2 sm:p-3 border border-orange-200">
-                ⚠️ You are using negative points. This will reduce the aura of the people you rate negatively.
-              </p>
-            )}
-          </div>
+          {/* Submit */}
+          {currentStep === 1 && (
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => setCurrentStep(0)}
+                className="py-3 px-6 rounded-md bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80"
+              >
+                ← Edit
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting || participants.length === 0}
+                className="py-3 px-8 rounded-md bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-gray-100 border-t-transparent dark:border-gray-500 dark:border-t-transparent rounded-full animate-spin" />
+                    Submitting...
+                  </span>
+                ) : (
+                  'Submit'
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </main>
     </div>

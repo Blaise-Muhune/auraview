@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { use } from "react";
-import { getUserProfile, submitRating, ensureUserProfile, getUserRemainingPoints, checkUserPoints, UserProfile } from "@/lib/firestore";
+import { getUserProfile, submitRating, getUserRemainingPoints, checkUserPoints, UserProfile } from "@/lib/firestore";
 
 interface RateUserPageProps {
   params: Promise<{
@@ -41,7 +41,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push(`/login?redirect=${encodeURIComponent(`/rate-user/${id}`)}`);
       return;
     }
 
