@@ -62,6 +62,13 @@ function SignupContent() {
 
         {error && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{error}</p>}
 
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          By signing up you agree to our{' '}
+          <Link href="/terms" className="text-gray-700 dark:text-gray-300 underline hover:no-underline">Terms</Link>
+          {' '}and{' '}
+          <Link href="/privacy" className="text-gray-700 dark:text-gray-300 underline hover:no-underline">Privacy Policy</Link>.
+        </p>
+
         <button
           onClick={handleGoogleSignIn}
           disabled={isSigningIn}

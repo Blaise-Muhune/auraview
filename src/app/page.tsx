@@ -1,7 +1,6 @@
 'use client';
 
 import Link from "next/link";
-import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -31,7 +30,6 @@ export default function Home() {
 
       <main className="max-w-2xl mx-auto px-4 py-16">
         <div className="text-center mb-12">
-          <Image src="/logo.png" alt="Aura" width={64} height={64} className="rounded-lg mx-auto mb-6" />
           <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-3">Aura</h1>
           <p className="text-gray-600 dark:text-gray-400 text-lg">
             Discover what friends actually think about you
