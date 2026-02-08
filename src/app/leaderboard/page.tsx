@@ -747,4 +747,4 @@ export default function Leaderboard() {
       </main>
     </div>
   );
-}
+} 
