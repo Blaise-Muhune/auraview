@@ -613,7 +613,7 @@ export default function Leaderboard() {
 
               <div className="mb-6 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60">
                 <p className="text-sm text-amber-900 dark:text-amber-200">
-                  Still light on votes. Share it with friends and get them to add who they appreciate — helps make the rankings feel real.
+                  Still light on votes. Share it with friends and get them to add who they appreciate. It helps make the rankings feel real.
                 </p>
               </div>
 
