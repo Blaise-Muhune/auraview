@@ -8,7 +8,7 @@ import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { use } from "react";
-import { getUserProfilesByIds, getUserDisplayName, isVotingClosed, Rating, GroupSession, UserProfile } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getUserProfilesByIds, getUserDisplayName, isVotingClosed, Rating, GroupSession, UserProfile } from "@/lib/firestore";
 import { generateRankCard } from "@/lib/insights";
 import { ShareableCard } from "@/components/ShareableCard";
 
@@ -56,7 +56,12 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   }, [user, loading, id, router]);
 
   const loadData = async () => {
+    if (!user || !id) return;
     try {
+      const [groupData, ratingsData] = await Promise.all([
+        getGroupById(id),
+        getGroupRatings(id),
+      ]);
 
       if (!groupData) {
         setError('Group not found');
@@ -65,8 +70,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
       setGroup(groupData);
       setRatings(ratingsData);
-      
-      // Get user profiles for all participants
+
       const userProfiles = await getUserProfilesByIds(groupData.participants);
       await calculateRankings(groupData, ratingsData, userProfiles);
     } catch (err) {
