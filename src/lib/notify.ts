@@ -42,7 +42,9 @@ export async function sendNotification(
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      console.warn('Notify API error:', res.status, await res.text());
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Notify API error:', res.status, await res.text());
+      }
     }
   } catch {
     // Silent fail

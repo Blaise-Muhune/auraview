@@ -97,7 +97,9 @@ export function Nav({
       await signOut();
       router.push('/');
     } catch (e) {
-      console.error(e);
+      if (process.env.NODE_ENV === 'development') {
+        console.error(e);
+      }
     }
   };
 

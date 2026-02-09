@@ -134,7 +134,9 @@ export default function RateUserPage({ params }: RateUserPageProps) {
         setTimeout(() => router.push('/leaderboard'), 1500);
       }
     } catch (err) {
-      console.error('Rating submission error:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Rating submission error:', err);
+      }
       setError(err instanceof Error ? err.message : 'Failed to submit rating');
     } finally {
       setIsSubmitting(false);

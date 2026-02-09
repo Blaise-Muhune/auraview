@@ -14,7 +14,9 @@ function loadServiceAccount(): object {
       const content = readFileSync(absPath, 'utf-8');
       return JSON.parse(content) as object;
     } catch (e) {
-      console.error('Failed to load service account from path:', e);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Failed to load service account from path:', e);
+      }
       throw new Error('FIREBASE_SERVICE_ACCOUNT_PATH invalid or file unreadable');
     }
   }

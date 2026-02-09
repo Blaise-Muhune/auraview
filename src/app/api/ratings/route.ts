@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { hasAdminConfig, getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { logger } from '@/lib/logger';
 import { FieldValue } from 'firebase-admin/firestore';
 
 const POINTS_MAX = 10000;
 const POINTS_MIN = -10000;
+const REASON_MAX_LENGTH = 500;
+const DISPLAY_NAME_MAX_LENGTH = 100;
 const DIRECT_GROUP_ID = 'direct';
 
 interface RatingBody {
@@ -44,6 +47,15 @@ export async function POST(request: Request) {
 
     if (fromUserId === toUserId) {
       return NextResponse.json({ error: 'Cannot rate yourself' }, { status: 400 });
+    }
+
+    if (typeof toUserDisplayName === 'string' && toUserDisplayName.length > DISPLAY_NAME_MAX_LENGTH) {
+      return NextResponse.json({ error: 'toUserDisplayName too long' }, { status: 400 });
+    }
+
+    const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+    if (trimmedReason.length > REASON_MAX_LENGTH) {
+      return NextResponse.json({ error: 'Reason too long' }, { status: 400 });
     }
 
     const db = getAdminDb();
@@ -95,7 +107,7 @@ export async function POST(request: Request) {
       toUserId,
       toUserDisplayName,
       points,
-      reason: reason?.trim() || null,
+      reason: trimmedReason || null,
       createdAt: FieldValue.serverTimestamp(),
     };
 
@@ -103,7 +115,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('Ratings API error:', err);
+    logger.error('Ratings API error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { hasAdminConfig, getAdminDb } from '@/lib/firebase-admin';
+import { logger } from '@/lib/logger';
 
 const CACHE_TTL_MS = 60_000; // 1 minute
 let cache: { rankings: unknown[]; stats: unknown; at: number } | null = null;
@@ -149,7 +150,7 @@ export async function POST(request: Request) {
   try {
     return await handleLeaderboardRequest(request);
   } catch (err) {
-    console.error('Leaderboard API error:', err);
+    logger.error('Leaderboard API error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -158,7 +159,7 @@ export async function GET(request: Request) {
   try {
     return await handleLeaderboardRequest(request);
   } catch (err) {
-    console.error('Leaderboard API error:', err);
+    logger.error('Leaderboard API error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

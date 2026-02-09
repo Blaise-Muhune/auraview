@@ -82,7 +82,9 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
         averageRating: stats.averageRating
       });
     } catch (err) {
-      console.error('Error loading famous person:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading famous person:', err);
+      }
       setError('Failed to load famous person data. Please check if the ID is valid.');
     } finally {
       setIsLoading(false);
@@ -131,7 +133,9 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
       setSuccess('Appreciation shared!');
       setTimeout(() => router.push('/leaderboard?tab=famous'), 1500);
     } catch (err) {
-      console.error('Rating submission error:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Rating submission error:', err);
+      }
       setError(err instanceof Error ? err.message : 'Failed to submit rating');
     } finally {
       setIsSubmitting(false);

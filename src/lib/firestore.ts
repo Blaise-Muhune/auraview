@@ -267,23 +267,14 @@ export const getUserGroups = async (userId: string): Promise<GroupSession[]> => 
 
 // Create or update user profile
 export const createUserProfile = async (user: User): Promise<void> => {
-  console.log('Creating user profile for:', user.uid, 'Display name:', user.displayName, 'Email:', user.email);
-  
-  // Try to get a better display name from the user object
   let displayName = user.displayName;
-  
-  // If no display name, try to extract from email
   if (!displayName && user.email) {
     displayName = user.email.split('@')[0];
-    console.log('Extracted display name from email:', displayName);
   }
-  
-  // Final fallback
   if (!displayName) {
     displayName = 'Anonymous User';
-    console.log('Using fallback display name:', displayName);
   }
-  
+
   const userData: Omit<UserProfile, 'id'> = {
     displayName: displayName,
     email: user.email || '',
@@ -296,13 +287,8 @@ export const createUserProfile = async (user: User): Promise<void> => {
     emailNotifications: true
   };
 
-  console.log('Saving user profile with data:', userData);
-
-  // Use user's UID as the document ID
   const userRef = doc(db, 'users', user.uid);
   await setDoc(userRef, userData);
-  
-  console.log('User profile created successfully for:', user.uid);
 };
 
 // Update user profile
@@ -325,7 +311,9 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     // If not found, try to get by email (old structure)
     return await getUserProfileByEmail(userId);
   } catch (error) {
-    console.error('Error getting user profile:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error getting user profile:', error);
+    }
     return null;
   }
 };
@@ -344,88 +332,58 @@ export const getUserProfileByEmail = async (email: string): Promise<UserProfile 
 
 // Ensure user profile exists (create if doesn't exist)
 export const ensureUserProfile = async (user: User): Promise<UserProfile> => {
-  console.log('Ensuring user profile exists for:', user.uid, 'Display name:', user.displayName);
-  
-  // First try to get existing profile
   const existingProfile = await getUserProfile(user.uid);
-  
+
   if (existingProfile) {
-    console.log('Found existing profile:', existingProfile.displayName);
-    
-    // If the existing profile has 'Anonymous' or 'Anonymous User' but we now have a real display name,
-    // update the profile
-    if ((existingProfile.displayName === 'Anonymous' || existingProfile.displayName === 'Anonymous User') && 
+    if ((existingProfile.displayName === 'Anonymous' || existingProfile.displayName === 'Anonymous User') &&
         user.displayName && user.displayName !== 'Anonymous' && user.displayName !== 'Anonymous User') {
-      console.log('Updating profile with better display name:', user.displayName);
       await updateUserProfile(user.uid, { displayName: user.displayName });
       existingProfile.displayName = user.displayName;
     }
-    
     return existingProfile;
   }
-  
-  console.log('No existing profile found, creating new one');
-  
-  // If no profile exists, create one
+
   await createUserProfile(user);
-  
-  // Return the newly created profile
   const newProfile = await getUserProfile(user.uid);
   if (!newProfile) {
     throw new Error('Failed to create user profile');
   }
-  
-  console.log('New profile created successfully:', newProfile.displayName);
   return newProfile;
 };
 
 // Refresh user profile from Firebase Auth data
 export const refreshUserProfile = async (user: User): Promise<void> => {
-  console.log('Refreshing user profile from Firebase Auth:', user.uid);
-  
   try {
     const existingProfile = await getUserProfile(user.uid);
-    
+
     if (existingProfile) {
       const updates: Partial<UserProfile> = {};
       let hasUpdates = false;
-      
-      // Update display name if we have a better one
-      if (user.displayName && 
-          user.displayName !== 'Anonymous' && 
+      if (user.displayName &&
+          user.displayName !== 'Anonymous' &&
           user.displayName !== 'Anonymous User' &&
           existingProfile.displayName !== user.displayName) {
         updates.displayName = user.displayName;
         hasUpdates = true;
-        console.log('Updating display name from', existingProfile.displayName, 'to', user.displayName);
       }
-      
-      // Update email if it changed
       if (user.email && existingProfile.email !== user.email) {
         updates.email = user.email;
         hasUpdates = true;
-        console.log('Updating email to:', user.email);
       }
-      
-      // Update photo URL if it changed
       if (user.photoURL && existingProfile.photoURL !== user.photoURL) {
         updates.photoURL = user.photoURL;
         hasUpdates = true;
-        console.log('Updating photo URL to:', user.photoURL);
       }
-      
       if (hasUpdates) {
         await updateUserProfile(user.uid, updates);
-        console.log('User profile refreshed successfully');
-      } else {
-        console.log('No updates needed for user profile');
       }
     } else {
-      console.log('No existing profile found, creating new one');
       await createUserProfile(user);
     }
   } catch (error) {
-    console.error('Error refreshing user profile:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error refreshing user profile:', error);
+    }
     throw error;
   }
 };
@@ -602,14 +560,13 @@ export const getGlobalRankings = async (): Promise<Array<{
       const userProfile = await getUserProfile(userId);
       if (userProfile && userProfile.displayName) {
         userProfiles.set(userId, userProfile.displayName);
-        console.log(`Found profile for ${userId}: ${userProfile.displayName}`);
       } else {
-        // Fallback to 'Anonymous User' if no profile or display name
         userProfiles.set(userId, 'Anonymous User');
-        console.log(`No profile or display name for ${userId}, using Anonymous User`);
       }
     } catch (error) {
-      console.error(`Failed to fetch profile for user ${userId}:`, error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Failed to fetch profile for user:', error);
+      }
       userProfiles.set(userId, 'Anonymous User');
     }
   }
@@ -870,7 +827,9 @@ export const getUserProfilesByIds = async (userIds: string[]): Promise<UserProfi
 
     return profiles;
   } catch (error) {
-    console.error('Error fetching user profiles:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error fetching user profiles:', error);
+    }
     return [];
   }
 };
@@ -903,7 +862,9 @@ export const getUserDisplayName = async (userId: string): Promise<string> => {
     // Final fallback - use a shortened user ID
     return `User ${userId.slice(0, 6)}`;
   } catch (error) {
-    console.error('Error getting user display name:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error getting user display name:', error);
+    }
     return `User ${userId.slice(0, 6)}`;
   }
 }; 

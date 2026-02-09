@@ -243,7 +243,9 @@ function LeaderboardContent() {
         setCurrentUserRank(null);
       }
     } catch (err) {
-      console.error('Error loading leaderboard data:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading leaderboard data:', err);
+      }
       setError(err instanceof Error ? err.message : 'Failed to load leaderboard data');
     } finally {
       setIsLoading(false);
@@ -476,7 +478,9 @@ function LeaderboardContent() {
                       const paginatedRankings = filteredRankings.slice(listStart).slice(start, start + RANKINGS_PER_PAGE);
                       return paginatedRankings.map((userRanking) => {
                       const actualRank = rankings.findIndex(ranking => ranking.userId === userRanking.userId) + 1;
-                      if (actualRank === 0) console.warn(`User ${userRanking.displayName} not found in global rankings`);
+                      if (actualRank === 0 && process.env.NODE_ENV === 'development') {
+                        console.warn('User not found in global rankings');
+                      }
                       const auraLevel = getAuraLevel(userRanking.totalAura ?? 0);
                       const isCurrentUser = user && userRanking.userId === user.uid;
 

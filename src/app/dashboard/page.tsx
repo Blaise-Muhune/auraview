@@ -38,7 +38,9 @@ export default function Dashboard() {
       setRatersCount(raters);
       setTotalAura(aura);
     } catch (err) {
-      console.error('Failed to load user stats:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Failed to load user stats:', err);
+      }
     }
   };
 

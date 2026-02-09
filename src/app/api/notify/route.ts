@@ -10,6 +10,15 @@ function getResend(): Resend | null {
 const FROM_EMAIL = process.env.EMAIL_FROM || 'Aura <notifications@resend.dev>';
 const APP_NAME = 'Aura';
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const MAX_NOTIFY_PER_MINUTE = 20;
 const rateLimit = new Map<string, { count: number; resetAt: number }>();
 
@@ -98,37 +107,40 @@ export async function POST(request: Request) {
 
     switch (type) {
       case 'rating_received': {
-        const fromName = data.fromUserDisplayName || 'Someone';
-        const points = data.points || '0';
-        const groupName = data.groupName || 'a group';
+        const fromName = escapeHtml(data.fromUserDisplayName || 'Someone');
+        const points = escapeHtml(String(data.points || '0'));
+        const groupName = escapeHtml(data.groupName || 'a group');
+        const appUrl = (data.appUrl && typeof data.appUrl === 'string' && data.appUrl.startsWith('http')) ? data.appUrl : '#';
         subject = `${fromName} gave you aura`;
         html = `
           <p>Hey,</p>
           <p><strong>${fromName}</strong> gave you <strong>${points}</strong> aura points in ${groupName}.</p>
-          <p><a href="${data.appUrl || '#'}">View your ranking</a></p>
+          <p><a href="${appUrl}">View your ranking</a></p>
           <p>— ${APP_NAME}</p>
         `;
         break;
       }
       case 'group_join': {
-        const joinerName = data.joinerName || 'Someone';
-        const groupName = data.groupName || 'your group';
+        const joinerName = escapeHtml(data.joinerName || 'Someone');
+        const groupName = escapeHtml(data.groupName || 'your group');
+        const appUrl = (data.appUrl && typeof data.appUrl === 'string' && data.appUrl.startsWith('http')) ? data.appUrl : '#';
         subject = `${joinerName} joined ${groupName}`;
         html = `
           <p>Hey,</p>
           <p><strong>${joinerName}</strong> joined ${groupName}.</p>
-          <p><a href="${data.appUrl || '#'}">View group</a></p>
+          <p><a href="${appUrl}">View group</a></p>
           <p>— ${APP_NAME}</p>
         `;
         break;
       }
       case 'voting_closed': {
-        const groupName = data.groupName || 'your group';
+        const groupName = escapeHtml(data.groupName || 'your group');
+        const appUrl = (data.appUrl && typeof data.appUrl === 'string' && data.appUrl.startsWith('http')) ? data.appUrl : '#';
         subject = `Voting closed in ${groupName}`;
         html = `
           <p>Hey,</p>
           <p>Voting has closed in <strong>${groupName}</strong>. Results are ready.</p>
-          <p><a href="${data.appUrl || '#'}">View results</a></p>
+          <p><a href="${appUrl}">View results</a></p>
           <p>— ${APP_NAME}</p>
         `;
         break;
@@ -149,7 +161,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('Notify API error:', err);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Notify API error:', err);
+    }
     return NextResponse.json({ ok: true }); // Don't fail the flow
   }
 }

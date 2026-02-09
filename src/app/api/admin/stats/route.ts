@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { hasAdminConfig, getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { logger } from '@/lib/logger';
 
-const ADMIN_EMAIL = 'blaisemu007@gmail.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 
 function toDateKey(ts: { seconds?: number; _seconds?: number } | null): string {
   if (!ts) return '';
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
       const userRecord = await getAdminAuth().getUser(decodedToken.uid);
       email = userRecord.email?.toLowerCase();
     }
-    if (email !== ADMIN_EMAIL.toLowerCase()) {
+    if (!ADMIN_EMAIL || email !== ADMIN_EMAIL.toLowerCase()) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
       overview,
     });
   } catch (err) {
-    console.error('Admin stats error:', err);
+    logger.error('Admin stats error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

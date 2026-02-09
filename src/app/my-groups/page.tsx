@@ -22,19 +22,14 @@ export default function MyGroupsPage() {
 
   const loadUserGroups = useCallback(async () => {
     try {
-      console.log('Loading user groups for user:', user?.uid);
-      
-      // Test Firestore connection first
-      console.log('Testing Firestore connection...');
       const testQuery = query(collection(db, 'groups'), limit(1));
-      const testSnapshot = await getDocs(testQuery);
-      console.log('Firestore connection test successful, found', testSnapshot.size, 'documents');
-      
+      await getDocs(testQuery);
       const userGroups = await getUserGroups(user!.uid);
-      console.log('Loaded groups:', userGroups);
       setGroups(userGroups);
     } catch (error) {
-      console.error('Error loading user groups:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading user groups:', error);
+      }
       setError('Failed to load your groups');
     } finally {
       setIsLoading(false);

@@ -57,15 +57,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
   const loadData = async () => {
     try {
-      console.log('Loading data for group ID:', id);
-      
-      const [groupData, ratingsData] = await Promise.all([
-        getGroupById(id),
-        getGroupRatings(id)
-      ]);
-
-      console.log('Group data:', groupData);
-      console.log('Ratings data:', ratingsData);
 
       if (!groupData) {
         setError('Group not found');
@@ -79,7 +70,9 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       const userProfiles = await getUserProfilesByIds(groupData.participants);
       await calculateRankings(groupData, ratingsData, userProfiles);
     } catch (err) {
-      console.error('Error loading group data:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading group data:', err);
+      }
       setError(err instanceof Error ? err.message : 'Failed to load group data');
     } finally {
       setIsLoading(false);
@@ -209,7 +202,9 @@ export default function ResultsPage({ params }: ResultsPageProps) {
         onSuccess?.();
       }, 'image/png', 1);
     } catch (err) {
-      console.error('Capture failed:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Capture failed:', err);
+      }
     } finally {
       setIsCapturing(false);
     }

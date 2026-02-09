@@ -128,7 +128,9 @@ export default function RatePage({ params }: RatePageProps) {
       setGroupRatings(ratingsData);
       setAlreadyRatedIds(new Set(ratedIds));
     } catch (err) {
-      console.error('Failed to load group:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Failed to load group:', err);
+      }
       setError('Failed to load group');
     } finally {
       setIsLoading(false);
@@ -150,7 +152,9 @@ export default function RatePage({ params }: RatePageProps) {
           names[participantId] = 'Anonymous User';
         }
       } catch (err) {
-        console.error(`Failed to load profile for ${participantId}:`, err);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to load profile:', err);
+        }
         names[participantId] = 'Anonymous User';
       }
     }
