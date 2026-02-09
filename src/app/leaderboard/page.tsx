@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useSearchParams } from "next/navigation";
@@ -32,7 +32,7 @@ interface TMDBPerson {
   popularity: number;
 }
 
-export default function Leaderboard() {
+function LeaderboardContent() {
   const { user, loading } = useAuth();
   const searchParams = useSearchParams();
   const [rankings, setRankings] = useState<UserRanking[]>([]);
@@ -796,5 +796,20 @@ export default function Leaderboard() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function Leaderboard() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav />
+        <main className="max-w-xl mx-auto px-5 py-10 flex items-center justify-center">
+          <span className="text-gray-500 dark:text-gray-400">Loading...</span>
+        </main>
+      </div>
+    }>
+      <LeaderboardContent />
+    </Suspense>
   );
 } 

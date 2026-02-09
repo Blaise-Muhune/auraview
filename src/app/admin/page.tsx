@@ -190,7 +190,7 @@ export default function AdminPage() {
                         borderRadius: '8px',
                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                       }}
-                      formatter={(value: number) => [value.toLocaleString(), '']}
+                      formatter={(value: number | undefined) => [(value ?? 0).toLocaleString(), '']}
                     />
                     <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                       {stats.overview.map((entry, index) => (
@@ -228,7 +228,7 @@ export default function AdminPage() {
                         borderRadius: '8px',
                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                       }}
-                      formatter={(value: number) => [value, 'Ratings']}
+                      formatter={(value: number | undefined) => [value ?? 0, 'Ratings']}
                     />
                     <Area
                       type="monotone"
@@ -257,7 +257,7 @@ export default function AdminPage() {
                       innerRadius={60}
                       outerRadius={90}
                       paddingAngle={2}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                       labelLine={false}
                     >
                       {stats.overview.map((entry, index) => (
@@ -271,7 +271,7 @@ export default function AdminPage() {
                         borderRadius: '8px',
                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                       }}
-                      formatter={(value: number) => [value.toLocaleString(), '']}
+                      formatter={(value: number | undefined) => [(value ?? 0).toLocaleString(), '']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
