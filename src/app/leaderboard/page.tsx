@@ -46,7 +46,6 @@ function LeaderboardContent() {
   const [famousPeople, setFamousPeople] = useState<FamousPerson[]>([]);
   const [filteredFamousPeople, setFilteredFamousPeople] = useState<FamousPerson[]>([]);
   const [activeTab, setActiveTab] = useState<'users' | 'famous'>('users');
-  const [anonymized, setAnonymized] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [famousPage, setFamousPage] = useState(1);
@@ -229,14 +228,13 @@ function LeaderboardContent() {
     try {
       setIsLoading(true);
       setError(null);
-      const { rankings: rankingsData, stats: statsData, anonymized: isAnonymized } = await getLeaderboardData(
+      const { rankings: rankingsData, stats: statsData } = await getLeaderboardData(
         user ? () => user.getIdToken() : () => Promise.resolve(undefined)
       );
 
       setRankings(rankingsData);
       setFilteredRankings(rankingsData);
       setStats(statsData);
-      setAnonymized(!!isAnonymized);
 
       if (user) {
         const userRank = rankingsData.findIndex((r) => r.userId === user.uid);
@@ -363,8 +361,8 @@ function LeaderboardContent() {
 
           {activeTab === 'users' ? (
           <>
-              {/* Search Bar for Users - hidden when anonymized (all names are Anonymous) */}
-              <div className={`px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 dark:border-gray-800 ${anonymized ? 'hidden' : ''}`}>
+              {/* Search Bar for Users */}
+              <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 dark:border-gray-800">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -373,10 +371,9 @@ function LeaderboardContent() {
                   </div>
                   <input
                     type="text"
-                    placeholder={user ? "Search users by name..." : "Sign in to search"}
+                    placeholder="Search users by name..."
                     value={userSearchQuery}
-                    onChange={(e) => user && setUserSearchQuery(e.target.value)}
-                    disabled={!user}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-12 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 focus:border-transparent text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   {userSearchQuery && (
@@ -427,8 +424,7 @@ function LeaderboardContent() {
                   const isUser2 = user && second.userId === user.uid;
                   const isUser3 = user && third.userId === user.uid;
                   const podiumHref = (r: UserRanking, isYou: boolean) => {
-                    if (anonymized) return null;
-                    if (isYou) return `/profile/${r.userId}`;
+                    if (isYou) return user ? `/profile/${r.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${r.userId}`)}`;
                     return user ? `/rate-user/${r.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${r.userId}`)}`;
                   };
                   const PodiumSlot = ({ r, isYou, rank, bg, bgFoot }: { r: UserRanking; isYou: boolean; rank: number; bg: string; bgFoot: string }) => {
@@ -517,23 +513,19 @@ function LeaderboardContent() {
                             {userRanking.totalAura != null ? userRanking.totalAura.toLocaleString() : '—'}
                           </div>
                           <div className="flex items-center gap-2">
-                            {!anonymized && (
-                              <>
-                                <Link
-                                  href={`/profile/${userRanking.userId}`}
-                                  className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors py-1.5"
-                                >
-                                  Profile
-                                </Link>
-                                {userRanking.userId !== user?.uid && (
-                                  <Link
-                                    href={user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`}
-                                    className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors py-1.5 px-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
-                                  >
-                                    Rate
-                                  </Link>
-                                )}
-                              </>
+                            <Link
+                              href={user ? `/profile/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${userRanking.userId}`)}`}
+                              className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors py-1.5"
+                            >
+                              Profile
+                            </Link>
+                            {userRanking.userId !== user?.uid && (
+                              <Link
+                                href={user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`}
+                                className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors py-1.5 px-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
+                              >
+                                Rate
+                              </Link>
                             )}
                           </div>
                         </div>

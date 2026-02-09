@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { hasAdminConfig, getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { hasAdminConfig, getAdminDb } from '@/lib/firebase-admin';
 
 const CACHE_TTL_MS = 60_000; // 1 minute
 let cache: { rankings: unknown[]; stats: unknown; at: number } | null = null;
@@ -127,31 +127,10 @@ async function computeLeaderboard(): Promise<{
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- request required by route handler signature
 async function handleLeaderboardRequest(request: Request): Promise<Response> {
-  let token: string | null = null;
-  if (request.method === 'POST') {
-    try {
-      const body = await request.json();
-      token = (body as { token?: string; idToken?: string }).token ?? (body as { token?: string; idToken?: string }).idToken ?? null;
-    } catch {
-      // body parse failed
-    }
-  }
-  if (!token) {
-    const authHeader = request.headers.get('Authorization');
-    token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  }
   if (!hasAdminConfig()) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
-  }
-  let authenticated = false;
-  if (token) {
-    try {
-      await getAdminAuth().verifyIdToken(token);
-      authenticated = true;
-    } catch {
-      // invalid token - fall back to anonymized
-    }
   }
   const now = Date.now();
   if (cache && now - cache.at < CACHE_TTL_MS) {
@@ -159,39 +138,11 @@ async function handleLeaderboardRequest(request: Request): Promise<Response> {
       rankings: LeaderboardRanking[];
       stats: LeaderboardStats;
     };
-    if (authenticated) {
-      return NextResponse.json({ rankings: rawRankings, stats: rawStats });
-    }
-    const anonymized = rawRankings.map((r) => ({
-      userId: r.userId,
-      displayName: 'Anonymous',
-      totalAura: null as number | null,
-      groupsJoined: r.groupsJoined,
-      ratingsReceived: r.ratingsReceived,
-    }));
-    return NextResponse.json({
-      rankings: anonymized,
-      stats: { ...rawStats, averageAura: null, highestAura: null },
-      anonymized: true,
-    });
+    return NextResponse.json({ rankings: rawRankings, stats: rawStats });
   }
   const { rankings, stats } = await computeLeaderboard();
   cache = { rankings, stats, at: now };
-  if (authenticated) {
-    return NextResponse.json({ rankings, stats, anonymized: false });
-  }
-  const anonymized = rankings.map((r) => ({
-    userId: r.userId,
-    displayName: 'Anonymous',
-    totalAura: null as number | null,
-    groupsJoined: r.groupsJoined,
-    ratingsReceived: r.ratingsReceived,
-  }));
-  return NextResponse.json({
-    rankings: anonymized,
-    stats: { ...stats, averageAura: null, highestAura: null },
-    anonymized: true,
-  });
+  return NextResponse.json({ rankings, stats });
 }
 
 export async function POST(request: Request) {
