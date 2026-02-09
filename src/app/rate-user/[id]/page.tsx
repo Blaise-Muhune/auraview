@@ -1,9 +1,10 @@
 'use client';
 
+import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { use } from "react";
 import { getUserProfile, submitRating, updateUserProfile, UserProfile } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
@@ -18,11 +19,11 @@ interface RateUserPageProps {
 }
 
 const auraQuestions = [
-  { id: 'presence_energy', question: 'Presence' },
-  { id: 'authenticity_self_vibe', question: 'Authenticity' },
-  { id: 'social_pull', question: 'Vibe' },
-  { id: 'style_aesthetic', question: 'Style' },
-  { id: 'trustworthy', question: 'Trustworthy' },
+  { id: 'presence_energy', question: 'Room presence', description: 'The energy and attention someone brings when they enter a room.' },
+  { id: 'authenticity_self_vibe', question: 'Authenticity', description: 'How genuine and true to themselves they are. Being real rather than putting on a facade.' },
+  { id: 'social_pull', question: 'Vibe', description: 'Their social magnetism—how they make people feel drawn to them and at ease in their presence.' },
+  { id: 'style_aesthetic', question: 'Style', description: 'Their unique aesthetic and how they express themselves through appearance, taste, and presentation.' },
+  { id: 'trustworthy', question: 'Trustworthy', description: 'How reliable and dependable they are. Someone you can count on and confide in.' },
 ];
 
 const MAX_PER_QUESTION = 2000;
@@ -40,6 +41,28 @@ export default function RateUserPage({ params }: RateUserPageProps) {
   const [consentSaving, setConsentSaving] = useState(false);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [flash, setFlash] = useState<{ key: string; label: string; id: number } | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [profileImageError, setProfileImageError] = useState(false);
+  const [openTooltipId, setOpenTooltipId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-tooltip-trigger]') && !target.closest('[data-tooltip-content]')) {
+        setOpenTooltipId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    setProfileImageError(false);
+  }, [targetUser?.id]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -99,23 +122,26 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     if (!user || !targetUser) return;
 
     const totalPoints = getTotalGiven();
-    if (totalPoints === 0) {
-      setError('Give at least one non-neutral rating before submitting.');
-      return;
-    }
     setIsSubmitting(true);
     setError(null);
     setSuccess(null);
 
     try {
       // Each person gets up to 10,000 points (±10,000). No global pool.
+      const questionScores: { [key: string]: number } = {};
+      auraQuestions.forEach((q) => {
+        const v = ratings[q.id] ?? 0;
+        if (v !== 0) questionScores[q.id] = v;
+      });
       await submitRating(
         'direct',
         user,
         targetUser.id,
         targetUser.displayName || 'Anonymous User',
         totalPoints,
-        undefined
+        undefined,
+        undefined,
+        Object.keys(questionScores).length > 0 ? questionScores : undefined
       );
 
       const token = await user.getIdToken();
@@ -225,11 +251,53 @@ export default function RateUserPage({ params }: RateUserPageProps) {
       <Nav showBack backHref="/leaderboard" />
 
       <main className="max-w-xl mx-auto px-5 py-10">
-        <div className="max-w-lg mx-auto">
-          {/* Target user name + total given */}
-          <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1 text-center">
-            {targetUser.displayName || 'User'}
-          </h1>
+        <div className="max-w-lg mx-auto relative">
+          {/* Dropdown at top */}
+          <div className="absolute right-0 top-0" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              aria-label="More options"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+              </svg>
+            </button>
+            {dropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 py-1 w-32 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-10">
+                <Link
+                  href={`/profile/${id}`}
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  Profile
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Target user avatar + name + total given */}
+          <div className="flex flex-col items-center gap-3 pt-8 sm:pt-0">
+            {targetUser.photoURL && !profileImageError ? (
+              <Image
+                src={targetUser.photoURL}
+                alt=""
+                width={64}
+                height={64}
+                className="w-16 h-16 rounded-full object-cover shrink-0"
+                unoptimized
+                onError={() => setProfileImageError(true)}
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0 text-2xl font-semibold text-gray-600 dark:text-gray-300">
+                {(targetUser.displayName || 'U').charAt(0).toUpperCase()}
+              </div>
+            )}
+            <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1 text-center">
+              {targetUser.displayName || 'User'}
+            </h1>
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
             {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given (±2,000 per question)
           </p>
@@ -258,8 +326,21 @@ export default function RateUserPage({ params }: RateUserPageProps) {
               const legend = getScoreLegend(val);
               return (
                 <div key={q.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-4 py-3 border-b border-gray-100 dark:border-gray-800/60 last:border-0">
-                  <div className="flex-shrink-0 sm:w-28 text-center sm:text-left">
+                  <div className="relative flex-shrink-0 sm:w-28 text-center sm:text-left flex items-center justify-center sm:justify-start gap-1" data-tooltip-trigger>
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{q.question}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setOpenTooltipId(openTooltipId === q.id ? null : q.id); }}
+                      className="inline-flex items-center justify-center w-4 h-4 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 text-xs font-medium"
+                      aria-label={`What does ${q.question} mean?`}
+                    >
+                      i
+                    </button>
+                    {openTooltipId === q.id && (
+                      <div className="absolute left-0 sm:left-0 top-full mt-2 z-20 p-3 rounded-lg bg-gray-900 dark:bg-gray-800 text-gray-100 text-sm shadow-lg border border-gray-700 w-[calc(100vw-2rem)] sm:w-64 max-w-[280px]" data-tooltip-content>
+                        {q.description}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <div className="flex items-center justify-center gap-2 relative">
@@ -303,10 +384,15 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           </div>
 
           {/* Submit */}
-          <div className="flex justify-center mt-8">
+          <div className="flex flex-col items-center gap-2 mt-8">
+            {totalGiven === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                You&apos;re submitting neutral (0) on all categories.
+              </p>
+            )}
             <button
               onClick={handleSubmit}
-              disabled={isSubmitting || totalGiven === 0}
+              disabled={isSubmitting}
               className="py-3 px-8 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (

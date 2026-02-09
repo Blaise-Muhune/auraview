@@ -5,12 +5,15 @@ import { logger } from '@/lib/logger';
 const CACHE_TTL_MS = 60_000; // 1 minute
 let cache: { rankings: unknown[]; stats: unknown; at: number } | null = null;
 
+const QUESTION_IDS = ['presence_energy', 'authenticity_self_vibe', 'social_pull', 'style_aesthetic', 'trustworthy'] as const;
+
 export type LeaderboardRanking = {
   userId: string;
   displayName: string;
   totalAura: number;
   groupsJoined: number;
   ratingsReceived: number;
+  questionTotals?: { [key: string]: number };
 };
 
 export type LeaderboardStats = {
@@ -39,7 +42,7 @@ async function computeLeaderboard(): Promise<{
 
   const userStats = new Map<
     string,
-    { displayName: string; totalAura: number; groupsJoined: number; ratingsReceived: number }
+    { displayName: string; totalAura: number; groupsJoined: number; ratingsReceived: number; questionTotals: { [key: string]: number } }
   >();
   uniqueUserIds.forEach((userId) => {
     userStats.set(userId, {
@@ -47,6 +50,7 @@ async function computeLeaderboard(): Promise<{
       totalAura: 500,
       groupsJoined: 0,
       ratingsReceived: 0,
+      questionTotals: Object.fromEntries(QUESTION_IDS.map((q) => [q, 0])),
     });
   });
 
@@ -59,11 +63,19 @@ async function computeLeaderboard(): Promise<{
   });
 
   ratingsSnap.docs.forEach((doc) => {
-    const r = doc.data() as { toUserId?: string; points?: number };
+    const r = doc.data() as { toUserId?: string; points?: number; questionScores?: { [key: string]: number } };
     const stat = userStats.get(r.toUserId ?? '');
     if (stat) {
       stat.totalAura += r.points ?? 0;
       stat.ratingsReceived += 1;
+      if (r.questionScores && typeof r.questionScores === 'object') {
+        for (const qid of QUESTION_IDS) {
+          const val = r.questionScores[qid];
+          if (typeof val === 'number') {
+            stat.questionTotals[qid] = (stat.questionTotals[qid] ?? 0) + val;
+          }
+        }
+      }
     }
   });
 
@@ -104,6 +116,7 @@ async function computeLeaderboard(): Promise<{
       totalAura: s.totalAura,
       groupsJoined: s.groupsJoined,
       ratingsReceived: s.ratingsReceived,
+      questionTotals: s.questionTotals,
     }))
     .sort((a, b) => b.totalAura - a.totalAura);
 
@@ -128,22 +141,39 @@ async function computeLeaderboard(): Promise<{
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- request required by route handler signature
+const SORT_OPTIONS = ['total', ...QUESTION_IDS] as const;
+
 async function handleLeaderboardRequest(request: Request): Promise<Response> {
   if (!hasAdminConfig()) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
   }
+  const url = new URL(request.url);
+  const sortBy = url.searchParams.get('sortBy') || 'total';
+  const validSort = SORT_OPTIONS.includes(sortBy as (typeof SORT_OPTIONS)[number]) ? sortBy : 'total';
+
   const now = Date.now();
   if (cache && now - cache.at < CACHE_TTL_MS) {
     const { rankings: rawRankings, stats: rawStats } = cache as {
       rankings: LeaderboardRanking[];
       stats: LeaderboardStats;
     };
-    return NextResponse.json({ rankings: rawRankings, stats: rawStats });
+    const sorted = [...rawRankings].sort((a, b) => {
+      if (validSort === 'total') return b.totalAura - a.totalAura;
+      const aVal = a.questionTotals?.[validSort] ?? 0;
+      const bVal = b.questionTotals?.[validSort] ?? 0;
+      return bVal - aVal;
+    });
+    return NextResponse.json({ rankings: sorted, stats: rawStats });
   }
   const { rankings, stats } = await computeLeaderboard();
   cache = { rankings, stats, at: now };
-  return NextResponse.json({ rankings, stats });
+  const sorted = [...rankings].sort((a, b) => {
+    if (validSort === 'total') return b.totalAura - a.totalAura;
+    const aVal = a.questionTotals?.[validSort] ?? 0;
+    const bVal = b.questionTotals?.[validSort] ?? 0;
+    return bVal - aVal;
+  });
+  return NextResponse.json({ rankings: sorted, stats });
 }
 
 export async function POST(request: Request) {

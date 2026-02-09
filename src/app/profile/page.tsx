@@ -6,6 +6,7 @@ import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { updateUserProfile, ensureUserProfile } from "@/lib/firestore";
+import { removeProfilePhoto } from "@/lib/auth";
 import { useTheme } from "@/components/ThemeProvider";
 
 const SOCIAL_DOMAINS: Record<string, string> = {
@@ -47,6 +48,7 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
 
   const [socialLinks, setSocialLinks] = useState<string[]>(['']);
   const [socialLinkErrors, setSocialLinkErrors] = useState<(string | null)[]>([]);
@@ -182,15 +184,39 @@ export default function ProfilePage() {
         {/* User info */}
         <div className="flex items-center gap-4 mb-8">
           {user.photoURL && !imageError ? (
-            <Image 
-              src={user.photoURL} 
-              alt="" 
-              width={56} 
-              height={56} 
-              className="w-14 h-14 rounded-full object-cover" 
-              unoptimized 
-              onError={() => setImageError(true)}
-            />
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <Image 
+                src={user.photoURL} 
+                alt="" 
+                width={56} 
+                height={56} 
+                className="w-14 h-14 rounded-full object-cover" 
+                unoptimized 
+                onError={() => setImageError(true)}
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!user) return;
+                  setRemovingPhoto(true);
+                  setError(null);
+                  try {
+                    const { error: err } = await removeProfilePhoto(user);
+                    if (err) {
+                      setError(err);
+                    } else {
+                      await updateUserProfile(user.uid, { photoURL: '' });
+                    }
+                  } finally {
+                    setRemovingPhoto(false);
+                  }
+                }}
+                disabled={removingPhoto}
+                className="text-xs text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
+              >
+                {removingPhoto ? 'Removing…' : 'Remove profile pic'}
+              </button>
+            </div>
           ) : (
             <div className="w-14 h-14 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xl font-semibold text-gray-600 dark:text-gray-300 shrink-0">
               {(user.displayName || 'U').charAt(0).toUpperCase()}

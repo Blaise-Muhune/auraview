@@ -9,6 +9,8 @@ const REASON_MAX_LENGTH = 500;
 const DISPLAY_NAME_MAX_LENGTH = 100;
 const DIRECT_GROUP_ID = 'direct';
 
+const QUESTION_IDS = ['presence_energy', 'authenticity_self_vibe', 'social_pull', 'style_aesthetic', 'trustworthy'] as const;
+
 interface RatingBody {
   idToken?: string;
   groupId: string;
@@ -16,6 +18,7 @@ interface RatingBody {
   toUserDisplayName: string;
   points: number;
   reason?: string;
+  questionScores?: { [key: string]: number };
 }
 
 export async function POST(request: Request) {
@@ -35,7 +38,7 @@ export async function POST(request: Request) {
     }
     const fromUserId = decodedToken.uid;
 
-    const { groupId, toUserId, toUserDisplayName, points, reason } = body;
+    const { groupId, toUserId, toUserDisplayName, points, reason, questionScores } = body;
 
     if (!groupId || !toUserId || !toUserDisplayName || typeof points !== 'number') {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -56,6 +59,18 @@ export async function POST(request: Request) {
     const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
     if (trimmedReason.length > REASON_MAX_LENGTH) {
       return NextResponse.json({ error: 'Reason too long' }, { status: 400 });
+    }
+
+    // Validate questionScores if provided
+    let sanitizedQuestionScores: { [key: string]: number } | null = null;
+    if (questionScores && typeof questionScores === 'object') {
+      sanitizedQuestionScores = {};
+      for (const qid of QUESTION_IDS) {
+        const val = questionScores[qid];
+        if (typeof val === 'number' && val >= -10000 && val <= 10000) {
+          sanitizedQuestionScores[qid] = val;
+        }
+      }
     }
 
     const db = getAdminDb();
@@ -100,7 +115,7 @@ export async function POST(request: Request) {
 
     // Each person you rate gets up to 10,000 points (±10,000). No global pool.
 
-    const ratingData = {
+    const ratingData: Record<string, unknown> = {
       groupId,
       fromUserId,
       fromUserDisplayName,
@@ -110,6 +125,9 @@ export async function POST(request: Request) {
       reason: trimmedReason || null,
       createdAt: FieldValue.serverTimestamp(),
     };
+    if (sanitizedQuestionScores && Object.keys(sanitizedQuestionScores).length > 0) {
+      ratingData.questionScores = sanitizedQuestionScores;
+    }
 
     await db.collection('ratings').add(ratingData);
 

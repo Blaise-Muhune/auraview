@@ -1,10 +1,11 @@
 'use client';
 
+import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { use } from "react";
 import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, getUserProfile, updateUserProfile } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
@@ -33,47 +34,52 @@ export default function RatePage({ params }: RatePageProps) {
   // const [reasons, setReasons] = useState<{[key: string]: string}>({});
   const POINTS_PER_PERSON = 10000;
   const [participantNames, setParticipantNames] = useState<{[key: string]: string}>({});
+  const [participantPhotos, setParticipantPhotos] = useState<{[key: string]: string}>({});
+  const [profileImageErrors, setProfileImageErrors] = useState<Set<string>>(new Set());
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // One person at a time, all questions visible
   const [currentParticipantIndex, setCurrentParticipantIndex] = useState(0);
   const [currentStep, setCurrentStep] = useState(0); // 0 = rating, 1 = review
   const [alreadyRatedIds, setAlreadyRatedIds] = useState<Set<string>>(new Set());
   const [flash, setFlash] = useState<{ key: string; label: string; id: number } | null>(null);
+  const [openTooltipId, setOpenTooltipId] = useState<string | null>(null);
 
-  // 5 core questions - enough to mean something, not a chore
+  // 5 core questions - enough to mean something, not a chore (descriptions match rate-user page)
   const auraQuestions = [
     {
       id: 'presence_energy',
-      question: 'Presence',
-      description: 'Do they fill a room or blend in?',
+      question: 'Room presence',
+      description: 'The energy and attention someone brings when they enter a room. How present and engaged they feel.',
       positiveLabel: 'Lights up the room',
       negativeLabel: 'Fades into the background'
     },
     {
       id: 'authenticity_self_vibe',
       question: 'Authenticity',
-      description: 'Real or trying too hard?',
+      description: 'How genuine and true to themselves they are. Being real rather than putting on a facade.',
       positiveLabel: 'Themselves',
       negativeLabel: 'Performing'
     },
     {
       id: 'social_pull',
       question: 'Vibe',
-      description: 'Easy to be around?',
+      description: 'Their social magnetism—how they make people feel drawn to them and at ease in their presence.',
       positiveLabel: 'People gravitate',
       negativeLabel: 'Hard to connect'
     },
     {
       id: 'style_aesthetic',
       question: 'Style',
-      description: 'Does their look match who they are?',
+      description: 'Their unique aesthetic and how they express themselves through appearance, taste, and presentation.',
       positiveLabel: 'Owns it',
       negativeLabel: 'Generic'
     },
     {
       id: 'trustworthy',
       question: 'Trustworthy',
-      description: 'Can you rely on them?',
+      description: 'How reliable and dependable they are. Someone you can count on and confide in.',
       positiveLabel: 'Has your back',
       negativeLabel: 'Flaky'
     }
@@ -97,6 +103,20 @@ export default function RatePage({ params }: RatePageProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadParticipantNames runs when group loads
   }, [group]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-tooltip-trigger]') && !target.closest('[data-tooltip-content]')) {
+        setOpenTooltipId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Set initial participant index to first unrated when data loads; redirect to results if all rated
   useEffect(() => {
@@ -139,15 +159,16 @@ export default function RatePage({ params }: RatePageProps) {
 
   const loadParticipantNames = async () => {
     if (!group) return;
-    
+
     const names: {[key: string]: string} = {};
-    
-    // Load names for all participants
+    const photos: {[key: string]: string} = {};
+
     for (const participantId of group.participants) {
       try {
         const userProfile = await getUserProfile(participantId);
         if (userProfile) {
           names[participantId] = userProfile.displayName;
+          if (userProfile.photoURL) photos[participantId] = userProfile.photoURL;
         } else {
           names[participantId] = 'Anonymous User';
         }
@@ -158,8 +179,9 @@ export default function RatePage({ params }: RatePageProps) {
         names[participantId] = 'Anonymous User';
       }
     }
-    
+
     setParticipantNames(names);
+    setParticipantPhotos(photos);
   };
 
   // const handleRatingChange = (participantId: string, points: number) => {
@@ -251,7 +273,7 @@ export default function RatePage({ params }: RatePageProps) {
 
   const handleSubmit = async () => {
     if (!user || !group) return;
-    
+
     setIsSubmitting(true);
     
     try {
@@ -269,14 +291,20 @@ export default function RatePage({ params }: RatePageProps) {
           const participantName = participantId === group.createdBy 
             ? group.createdByDisplayName 
             : participantNames[participantId] || 'Anonymous User';
-          
+          const questionScores: { [key: string]: number } = {};
+          auraQuestions.forEach((q) => {
+            const v = ratings[`${participantId}_${q.id}`] ?? 0;
+            if (v !== 0) questionScores[q.id] = v;
+          });
           return submitRating(
             group.id,
             user,
             participantId,
             participantName,
             points,
-            // reasons[participantId] || undefined
+            undefined,
+            undefined,
+            Object.keys(questionScores).length > 0 ? questionScores : undefined
           );
         }
         return Promise.resolve();
@@ -409,11 +437,35 @@ export default function RatePage({ params }: RatePageProps) {
     <div className="min-h-screen bg-white dark:bg-gray-950">
       <Nav showBack backHref="/my-groups" />
 
-      <main className="max-w-xl mx-auto px-5 py-10">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center text-gray-900 dark:text-gray-100 mb-4">
-            <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100">Share what you appreciate</h1>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">10,000 points per person</p>
+      <main className="max-w-xl mx-auto px-5 py-6">
+        <div className="max-w-4xl mx-auto relative">
+          {/* Dropdown at top */}
+          <div className="absolute right-0 top-0" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              aria-label="More options"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+              </svg>
+            </button>
+            {dropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 py-1 w-32 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-10">
+                <Link
+                  href={currentStep === 0 && participants[currentParticipantIndex] ? `/profile/${participants[currentParticipantIndex]}` : `/group/${group.id}/results`}
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  {currentStep === 0 ? 'Profile' : 'Results'}
+                </Link>
+              </div>
+            )}
+          </div>
+          <div className="text-center text-gray-900 dark:text-gray-100 mb-3">
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Share what you appreciate</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">10,000 pts per person</p>
           </div>
 
           {error && (
@@ -424,7 +476,7 @@ export default function RatePage({ params }: RatePageProps) {
             <p className="mb-4 text-green-600 dark:text-green-400 text-sm">{success}</p>
           )}
 
-          <div className="border border-gray-200 dark:border-gray-800/60 dark:bg-gray-900/30 rounded-xl p-4 mb-6">
+          <div className="border border-gray-200 dark:border-gray-800/60 dark:bg-gray-900/30 rounded-xl p-4 mb-4">
             
             {participants.length === 0 ? (
               <div className="text-center text-gray-500 dark:text-gray-400 py-8">
@@ -450,55 +502,84 @@ export default function RatePage({ params }: RatePageProps) {
                   const key = `${currentParticipant}_${q.id}`;
                   return sum + (ratings[key] ?? 0);
                 }, 0);
-                // Map -10000..+10000 to 0%..100% (50% = neutral)
-                const barPosition = Math.max(0, Math.min(100, ((totalGiven + POINTS_PER_PERSON) / (POINTS_PER_PERSON * 2)) * 100));
-                const isPositive = totalGiven >= 0;
-                const fillWidth = Math.abs(barPosition - 50);
-                
+
                 const isParticipantRated = (pid: string) => alreadyRatedIds.has(pid) || getParticipantTotalRating(pid) !== 0;
+                // Progress ring: -10000..+10000 maps to 0..100% of circumference
+                const circum = 2 * Math.PI * 18;
+                const progRatio = (totalGiven + POINTS_PER_PERSON) / (POINTS_PER_PERSON * 2);
+                const strokeDash = circum * Math.max(0, Math.min(1, progRatio));
+                const progressColor = totalGiven >= 0 ? 'rgb(34 197 94)' : 'rgb(239 68 68)';
+
                 return (
                   <div className="max-w-lg mx-auto">
-                    {/* Participant nav - dots for each person, rated = filled color */}
-                    <div className="flex flex-wrap justify-center gap-2 mb-6">
+                    {/* Participant nav - avatars with progress ring on radius */}
+                    <div className="flex flex-wrap justify-center items-center gap-2 mb-3">
                       {participants.map((pid, idx) => {
                         const name = pid === group.createdBy ? group.createdByDisplayName : participantNames[pid] || '...';
                         const rated = isParticipantRated(pid);
                         const isCurrent = idx === currentParticipantIndex;
+                        const pidTotal = getParticipantTotalRating(pid);
+                        const pidCircum = isCurrent ? circum : 2 * Math.PI * 14;
+                        const pidProgRatio = (pidTotal + POINTS_PER_PERSON) / (POINTS_PER_PERSON * 2);
+                        const pidStrokeDash = pidCircum * Math.max(0, Math.min(1, pidProgRatio));
+                        const pidColor = pidTotal >= 0 ? 'rgb(34 197 94)' : 'rgb(239 68 68)';
+
                         return (
                           <button
                             key={pid}
                             type="button"
                             onClick={() => setCurrentParticipantIndex(idx)}
-                            className={`min-w-[2rem] px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                              isCurrent
-                                ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 ring-2 ring-amber-500 ring-offset-2 dark:ring-offset-gray-950'
-                                : rated
-                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/30'
-                                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            className={`rounded-full shrink-0 transition-all focus:outline-none ${
+                              isCurrent ? 'ring-2 ring-amber-500 ring-offset-2 dark:ring-offset-gray-950' : ''
                             }`}
                             title={name}
+                            aria-label={name}
                           >
-                            {name.split(' ')[0].slice(0, 8)}
+                            <div className={`relative flex items-center justify-center ${isCurrent ? 'w-11 h-11' : 'w-9 h-9'}`}>
+                              {/* Progress ring around avatar */}
+                              {isCurrent ? (
+                                <svg className="absolute inset-0 w-11 h-11 -rotate-90" viewBox="0 0 44 44">
+                                  <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-gray-200 dark:text-gray-700" />
+                                  <circle cx="22" cy="22" r="18" fill="none" stroke={progressColor} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${strokeDash} ${circum}`} className="transition-all duration-300" />
+                                </svg>
+                              ) : pidTotal !== 0 ? (
+                                <svg className="absolute inset-0 w-9 h-9 -rotate-90" viewBox="0 0 36 36">
+                                  <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-200 dark:text-gray-700" />
+                                  <circle cx="18" cy="18" r="14" fill="none" stroke={pidColor} strokeWidth="2" strokeLinecap="round" strokeDasharray={`${pidStrokeDash} ${pidCircum}`} className="transition-all" />
+                                </svg>
+                              ) : null}
+                              {participantPhotos[pid] && !profileImageErrors.has(pid) ? (
+                                <Image
+                                  src={participantPhotos[pid]}
+                                  alt=""
+                                  width={isCurrent ? 40 : 32}
+                                  height={isCurrent ? 40 : 32}
+                                  className={`rounded-full object-cover relative z-10 ${isCurrent ? 'w-10 h-10' : 'w-8 h-8'}`}
+                                  unoptimized
+                                  onError={() => setProfileImageErrors((prev) => new Set(prev).add(pid))}
+                                />
+                              ) : (
+                                <div className={`rounded-full flex items-center justify-center relative z-10 ${
+                                  isCurrent ? 'w-10 h-10 text-sm' : 'w-8 h-8 text-xs'
+                                } font-semibold ${
+                                  isCurrent ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+                                    : rated ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                                }`}>
+                                  {(name || 'U').charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
                           </button>
                         );
                       })}
                     </div>
-                    {/* Who we're rating + total given */}
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 text-center">{participantName}</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
-                      {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given (±2,000 per question)
-                    </p>
-                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-2 relative">
-                      <div className="absolute left-1/2 top-0 w-0.5 h-full bg-gray-400 dark:bg-gray-600 -translate-x-px z-10" />
-                      <div 
-                        className="absolute top-0 h-full transition-all"
-                        style={{ 
-                          width: `${fillWidth}%`,
-                          left: isPositive ? '50%' : `${barPosition}%`,
-                          backgroundColor: isPositive ? 'rgb(34 197 94)' : 'rgb(239 68 68)',
-                          borderRadius: isPositive ? '0 9999px 9999px 0' : '9999px 0 0 9999px'
-                        }}
-                      />
+                    {/* Name + points */}
+                    <div className="text-center mb-3">
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{participantName}</h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given (±2,000 per question)
+                      </p>
                     </div>
 
                     {/* All 5 questions - +500 / -500 per section */}
@@ -509,8 +590,21 @@ export default function RatePage({ params }: RatePageProps) {
                         const legend = getScoreLegend(val);
                         return (
                           <div key={q.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-4 py-3 border-b border-gray-100 dark:border-gray-800/60 last:border-0">
-                            <div className="flex-shrink-0 sm:w-28 text-center sm:text-left">
+                            <div className="relative flex-shrink-0 sm:w-28 text-center sm:text-left flex items-center justify-center sm:justify-start gap-1" data-tooltip-trigger>
                               <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{q.question}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setOpenTooltipId(openTooltipId === key ? null : key); }}
+                                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 text-xs font-medium"
+                                aria-label={`What does ${q.question} mean?`}
+                              >
+                                i
+                              </button>
+                              {openTooltipId === key && (
+                                <div className="absolute left-0 sm:left-0 top-full mt-2 z-20 p-3 rounded-lg bg-gray-900 dark:bg-gray-800 text-gray-100 text-sm shadow-lg border border-gray-700 w-[calc(100vw-2rem)] sm:w-64 max-w-[280px]" data-tooltip-content>
+                                  {q.description}
+                                </div>
+                              )}
                             </div>
                             <div className="flex flex-col items-center gap-1">
                               <div className="flex items-center justify-center gap-2 relative">
@@ -607,18 +701,24 @@ export default function RatePage({ params }: RatePageProps) {
 
           {/* Submit */}
           {currentStep === 1 && (
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <button
-                onClick={() => setCurrentStep(0)}
-                className="py-3 px-6 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80"
-              >
-                ← Edit
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting || participants.length === 0}
-                className="py-3 px-8 rounded-xl bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+            <div className="flex flex-col items-center gap-3">
+              {!participants.some((pid) => getParticipantTotalRating(pid) !== 0) && participants.length > 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  You&apos;re submitting neutral (0) on all categories.
+                </p>
+              )}
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button
+                  onClick={() => setCurrentStep(0)}
+                  className="py-3 px-6 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80"
+                >
+                  ← Edit
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || participants.length === 0}
+                  className="py-3 px-8 rounded-xl bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-gray-100 border-t-transparent dark:border-gray-500 dark:border-t-transparent rounded-full animate-spin" />
@@ -629,6 +729,7 @@ export default function RatePage({ params }: RatePageProps) {
                 )}
               </button>
             </div>
+          </div>
           )}
         </div>
       </main>

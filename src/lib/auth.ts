@@ -1,5 +1,16 @@
-import { signInWithPopup, signOut, User } from 'firebase/auth';
+import { signInWithPopup, signOut, updateProfile, User } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
+
+// Remove profile photo (sets to empty, falls back to initials)
+export const removeProfilePhoto = async (user: User): Promise<{ error: string | null }> => {
+  try {
+    await updateProfile(user, { photoURL: '' });
+    return { error: null };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to remove photo';
+    return { error: errorMessage };
+  }
+};
 
 // Sign in with Google
 export const signInWithGoogle = async () => {

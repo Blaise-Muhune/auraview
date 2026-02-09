@@ -94,6 +94,7 @@ export interface FamousPersonRating {
   famousPersonName: string;
   points: number;
   reason?: string;
+  questionScores?: { [key: string]: number };
   createdAt: Timestamp;
 }
 
@@ -105,6 +106,7 @@ export interface FamousPerson {
   totalAura: number;
   ratingsReceived: number;
   averageRating: number;
+  questionTotals?: { [key: string]: number };
   isUnrated?: boolean;
 }
 
@@ -396,20 +398,25 @@ export const submitRating = async (
   toUserDisplayName: string,
   points: number,
   reason?: string,
-  token?: string
+  token?: string,
+  questionScores?: { [key: string]: number }
 ): Promise<void> => {
   const idToken = token ?? (await user.getIdToken());
+  const body: Record<string, unknown> = {
+    idToken,
+    groupId,
+    toUserId,
+    toUserDisplayName,
+    points,
+    reason: reason?.trim() || undefined,
+  };
+  if (questionScores && Object.keys(questionScores).length > 0) {
+    body.questionScores = questionScores;
+  }
   const res = await fetch('/api/ratings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      idToken,
-      groupId,
-      toUserId,
-      toUserDisplayName,
-      points,
-      reason: reason?.trim() || undefined,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -499,25 +506,29 @@ export const getUserDistributedPoints = async (userId: string): Promise<number> 
 
 // Fetch leaderboard from server API (avoids full collection scans on client)
 // When signed in: full names and aura. When signed out: anonymized (names hidden, aura hidden, ratingsReceived shown).
-export const getLeaderboardData = async (getToken: () => Promise<string | undefined>): Promise<{
-  rankings: Array<{ userId: string; displayName: string; totalAura: number | null; groupsJoined: number; ratingsReceived: number }>;
+export const getLeaderboardData = async (
+  getToken: () => Promise<string | undefined>,
+  sortBy?: string
+): Promise<{
+  rankings: Array<{ userId: string; displayName: string; totalAura: number | null; groupsJoined: number; ratingsReceived: number; questionTotals?: { [key: string]: number } }>;
   stats: { totalUsers: number; totalRatings: number; averageAura: number | null; highestAura: number | null };
   anonymized?: boolean;
 }> => {
   const token = await getToken();
+  const sortParam = sortBy ? `?sortBy=${encodeURIComponent(sortBy)}` : '';
 
   let res: Response;
   if (token) {
-    res = await fetch('/api/leaderboard', {
+    res = await fetch(`/api/leaderboard${sortParam}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
     if (res.status === 401) {
-      res = await fetch('/api/leaderboard', { headers: { Authorization: `Bearer ${token}` } });
+      res = await fetch(`/api/leaderboard${sortParam}`, { headers: { Authorization: `Bearer ${token}` } });
     }
   } else {
-    res = await fetch('/api/leaderboard');
+    res = await fetch(`/api/leaderboard${sortParam}`);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -682,12 +693,34 @@ export const hasUserRatedFamousPerson = async (userId: string, famousPersonId: s
   return !snapshot.empty;
 };
 
+export const getUserFamousPersonRating = async (
+  userId: string,
+  famousPersonId: string
+): Promise<{ points: number; questionScores?: { [key: string]: number } } | null> => {
+  const q = query(
+    collection(db, 'famousPersonRatings'),
+    where('famousPersonId', '==', famousPersonId),
+    where('fromUserId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  const data = doc.data() as FamousPersonRating;
+  return {
+    points: data.points,
+    questionScores: data.questionScores,
+  };
+};
+
+const FAMOUS_QUESTION_IDS = ['talent', 'achievement', 'charisma', 'reputation', 'impact'] as const;
+
 export const submitFamousPersonRating = async (
   user: User,
   famousPersonId: string,
   famousPersonName: string,
   points: number,
-  reason?: string
+  reason?: string,
+  questionScores?: { [key: string]: number }
 ): Promise<void> => {
   const alreadyRated = await hasUserRatedFamousPerson(user.uid, famousPersonId);
   if (alreadyRated) {
@@ -703,9 +736,21 @@ export const submitFamousPersonRating = async (
     createdAt: serverTimestamp() as Timestamp
   };
 
-  // Only include reason if it's not empty
   if (reason && reason.trim()) {
     ratingData.reason = reason.trim();
+  }
+
+  if (questionScores && typeof questionScores === 'object') {
+    const sanitized: { [key: string]: number } = {};
+    for (const qid of FAMOUS_QUESTION_IDS) {
+      const val = questionScores[qid];
+      if (typeof val === 'number' && val >= -10000 && val <= 10000) {
+        sanitized[qid] = val;
+      }
+    }
+    if (Object.keys(sanitized).length > 0) {
+      ratingData.questionScores = sanitized;
+    }
   }
 
   await addDoc(collection(db, 'famousPersonRatings'), ratingData);
@@ -754,6 +799,7 @@ export const getAllFamousPeopleStats = async (): Promise<{[key: string]: {
   totalAura: number;
   ratingsReceived: number;
   averageRating: number;
+  questionTotals: { [key: string]: number };
 } | null}> => {
   const q = query(collection(db, 'famousPersonRatings'));
   const querySnapshot = await getDocs(q);
@@ -762,6 +808,7 @@ export const getAllFamousPeopleStats = async (): Promise<{[key: string]: {
     totalAura: number;
     ratingsReceived: number;
     averageRating: number;
+    questionTotals: { [key: string]: number };
   } | null} = {};
   
   querySnapshot.docs.forEach(doc => {
@@ -772,15 +819,23 @@ export const getAllFamousPeopleStats = async (): Promise<{[key: string]: {
       stats[personId] = {
         totalAura: 0,
         ratingsReceived: 0,
-        averageRating: 0
+        averageRating: 0,
+        questionTotals: Object.fromEntries(FAMOUS_QUESTION_IDS.map((q) => [q, 0])),
       };
     }
     
     stats[personId]!.totalAura += rating.points;
     stats[personId]!.ratingsReceived += 1;
+    if (rating.questionScores && typeof rating.questionScores === 'object') {
+      for (const qid of FAMOUS_QUESTION_IDS) {
+        const val = rating.questionScores[qid];
+        if (typeof val === 'number') {
+          stats[personId]!.questionTotals[qid] = (stats[personId]!.questionTotals[qid] ?? 0) + val;
+        }
+      }
+    }
   });
   
-  // Calculate averages
   Object.keys(stats).forEach(personId => {
     if (stats[personId]) {
       stats[personId]!.averageRating = stats[personId]!.totalAura / stats[personId]!.ratingsReceived;

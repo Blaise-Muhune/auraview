@@ -3,12 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, useRef } from "react";
 import { use } from "react";
-import { submitFamousPersonRating, getFamousPersonStats, hasUserRatedFamousPerson, FamousPerson } from "@/lib/firestore";
+import { submitFamousPersonRating, getFamousPersonStats, hasUserRatedFamousPerson, getUserFamousPersonRating, FamousPerson } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
 import { Nav } from "@/components/Nav";
+import { ShareableCardFamous } from "@/components/ShareableCard";
+import html2canvas from "html2canvas";
 
 interface RateFamousPageProps {
   params: Promise<{
@@ -26,11 +28,11 @@ interface TMDBPerson {
 
 // Questions for famous people
 const famousPersonQuestions = [
-  { id: 'talent', question: 'Talent' },
-  { id: 'achievement', question: 'Achievement' },
-  { id: 'charisma', question: 'Charisma' },
-  { id: 'style', question: 'Style' },
-  { id: 'impact', question: 'Impact' },
+  { id: 'talent', question: 'Talent', description: 'Their natural skill and ability in their craft—acting, music, sports, or other creative work.' },
+  { id: 'achievement', question: 'Achievement', description: "What they've accomplished in their career. Awards, milestones, and recognition." },
+  { id: 'charisma', question: 'Charisma', description: 'Their magnetic personality and ability to captivate and inspire others.' },
+  { id: 'reputation', question: 'Reputation', description: "How they're perceived publicly—their conduct, integrity, and influence." },
+  { id: 'impact', question: 'Impact', description: "The lasting effect they've had on their field, culture, or society." },
 ];
 
 const POINTS_PER_PERSON = 10000;
@@ -39,14 +41,42 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const { id } = use(params);
+  const searchParams = useSearchParams();
   const [famousPerson, setFamousPerson] = useState<FamousPerson | null>(null);
   const [alreadyRated, setAlreadyRated] = useState(false);
+  const [myRating, setMyRating] = useState<{ points: number; questionScores?: { [key: string]: number } } | null>(null);
+  const [rankFromUrl, setRankFromUrl] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ratings, setRatings] = useState<{[key: string]: number}>({});
   const [flash, setFlash] = useState<{ questionId: string; label: string; id: number } | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [imageError, setImageError] = useState(false);
+  const [openTooltipId, setOpenTooltipId] = useState<string | null>(null);
+  const [copyLinkFeedback, setCopyLinkFeedback] = useState(false);
+  const [capturingCard, setCapturingCard] = useState(false);
+  const shareableCardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-tooltip-trigger]') && !target.closest('[data-tooltip-content]')) {
+        setOpenTooltipId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [famousPerson?.id]);
 
   const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || 'demo_key';
   const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -61,10 +91,15 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
       loadFamousPerson();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFamousPerson runs on auth/id change
-  }, [user, loading, id, router]);
+  }, [user, loading, id, router, searchParams]);
 
   const loadFamousPerson = async () => {
     if (!user) return;
+    const rankParam = searchParams.get('rank');
+    if (rankParam) {
+      const r = parseInt(rankParam, 10);
+      if (!Number.isNaN(r) && r > 0) setRankFromUrl(r);
+    }
     try {
       const response = await fetch(`${TMDB_BASE_URL}/person/${id}?api_key=${TMDB_API_KEY}&language=en-US`);
       if (!response.ok) throw new Error('Failed to fetch from TMDB API');
@@ -72,6 +107,12 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
       const stats = await getFamousPersonStats(id);
       const rated = await hasUserRatedFamousPerson(user.uid, id);
       setAlreadyRated(rated);
+      if (rated) {
+        const my = await getUserFamousPersonRating(user.uid, id);
+        setMyRating(my);
+      } else {
+        setMyRating(null);
+      }
       setFamousPerson({
         id: personData.id.toString(),
         name: personData.name,
@@ -120,18 +161,26 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
   const handleSubmit = async () => {
     if (!user || !famousPerson) return;
     const totalPoints = getTotalRating();
-    if (totalPoints === 0) {
-      setError('Give at least one non-neutral rating before submitting.');
-      return;
-    }
     setIsSubmitting(true);
     setError(null);
     setSuccess(null);
     try {
       // Each person gets up to 10,000 points (±10,000). No global pool.
-      await submitFamousPersonRating(user, famousPerson.id, famousPerson.name, totalPoints, undefined);
+      const questionScores: { [key: string]: number } = {};
+      famousPersonQuestions.forEach((q) => {
+        const v = ratings[q.id] ?? 0;
+        if (v !== 0) questionScores[q.id] = v;
+      });
+      await submitFamousPersonRating(
+        user,
+        famousPerson.id,
+        famousPerson.name,
+        totalPoints,
+        undefined,
+        Object.keys(questionScores).length > 0 ? questionScores : undefined
+      );
       setSuccess('Appreciation shared!');
-      setTimeout(() => router.push('/leaderboard?tab=famous'), 1500);
+      setTimeout(() => router.push(`/rate-famous/${id}`), 1500);
     } catch (err) {
       if (process.env.NODE_ENV === 'development') {
         console.error('Rating submission error:', err);
@@ -168,23 +217,168 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
   }
 
   const totalGiven = getTotalRating();
-  const canSubmit = totalGiven !== 0;
   const barPosition = Math.max(0, Math.min(100, ((totalGiven + POINTS_PER_PERSON) / (POINTS_PER_PERSON * 2)) * 100));
   const isPositive = totalGiven >= 0;
   const fillWidth = Math.abs(barPosition - 50);
 
   if (alreadyRated && famousPerson) {
+    const voteUrl = typeof window !== 'undefined' ? `${window.location.origin}/rate-famous/${id}` : '';
+    const rank = rankFromUrl ?? 0;
+    const handleCopyLink = async () => {
+      try {
+        await navigator.clipboard.writeText(voteUrl);
+        setCopyLinkFeedback(true);
+        setTimeout(() => setCopyLinkFeedback(false), 2000);
+      } catch {
+        // ignore
+      }
+    };
+    const handleDownloadCard = async () => {
+      const el = shareableCardRef.current;
+      if (!el) return;
+      setCapturingCard(true);
+      try {
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#0d1b2a',
+          logging: false,
+        });
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            setCapturingCard(false);
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `aura-${famousPerson.name.replace(/\s/g, '-')}-vote.png`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setCapturingCard(false);
+        }, 'image/png', 1);
+      } catch {
+        setCapturingCard(false);
+      }
+    };
+
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
-        <Nav showBack backHref="/leaderboard" />
-        <main className="max-w-xl mx-auto px-5 py-10 text-center">
-          <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-8 mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Already rated</h2>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-              You&apos;ve already rated {famousPerson.name}. You can only rate each person once.
-            </p>
+        <Nav showBack backHref="/leaderboard?tab=famous" />
+        <main className="max-w-xl mx-auto px-5 py-8">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-1 text-center">Already voted</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-6">
+            You&apos;ve already rated {famousPerson.name}. Here&apos;s your vote and how to spread the word.
+          </p>
+
+          {/* Profile + rank + summary */}
+          <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-5 mb-6">
+            <div className="flex items-center gap-4 mb-4">
+              {famousPerson.imageUrl && !imageError ? (
+                <Image
+                  src={famousPerson.imageUrl}
+                  alt={famousPerson.name}
+                  width={80}
+                  height={80}
+                  className="w-20 h-20 rounded-full object-cover flex-shrink-0"
+                  unoptimized
+                  onError={() => setImageError(true)}
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 text-2xl font-semibold text-gray-600 dark:text-gray-300">
+                  {(famousPerson.name || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="text-left min-w-0 flex-1">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{famousPerson.name}</h3>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">{famousPerson.profession}</p>
+                {rank > 0 && (
+                  <p className="text-amber-600 dark:text-amber-400 text-sm font-medium mt-1">#{rank} on leaderboard</p>
+                )}
+                <p className="text-gray-700 dark:text-gray-300 text-sm font-mono mt-1">
+                  {famousPerson.totalAura.toLocaleString()} total aura
+                </p>
+              </div>
+            </div>
+            {myRating && (
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">How you voted</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  You gave them <span className="font-semibold text-gray-900 dark:text-gray-100">{myRating.points > 0 ? '+' : ''}{myRating.points.toLocaleString()}</span> aura
+                  {myRating.questionScores && Object.keys(myRating.questionScores).length > 0 && (
+                    <span className="block mt-2 text-gray-500 dark:text-gray-500">
+                      {Object.entries(myRating.questionScores)
+                        .map(([qId, val]) => {
+                          const q = famousPersonQuestions.find((x) => x.id === qId);
+                          const label = q?.question ?? qId;
+                          return `${label}: ${val > 0 ? '+' : ''}${val}`;
+                        })
+                        .join(' · ')}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Share link + Share card */}
+          <div className="flex flex-col sm:flex-row gap-3 mb-6">
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-medium text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              {copyLinkFeedback ? (
+                <>
+                  <span className="text-green-600 dark:text-green-400">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                  Share link to vote
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadCard}
+              disabled={capturingCard}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-600 dark:bg-amber-500 text-white font-medium text-sm hover:bg-amber-700 dark:hover:bg-amber-600 disabled:opacity-50 transition-colors"
+            >
+              {capturingCard ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Creating image...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Shareable card image
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Single card: same as downloaded image */}
+          <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-2">Preview — download with the button above</p>
+          <div className="flex justify-center">
+            <div ref={shareableCardRef}>
+              <ShareableCardFamous
+                name={famousPerson.name}
+                imageUrl={famousPerson.imageUrl || ''}
+                rank={rank > 0 ? rank : 99}
+                totalAura={famousPerson.totalAura}
+              />
+            </div>
+          </div>
+
+          <div className="text-center mt-6">
             <Link
-              href="/leaderboard"
+              href="/leaderboard?tab=famous"
               className="inline-block px-5 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:opacity-90 text-[13px]"
             >
               Back to leaderboard
@@ -200,7 +394,31 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
       <Nav showBack backHref="/leaderboard" />
 
       <main className="max-w-2xl mx-auto px-4 py-8">
-        <div className="text-center text-gray-900 dark:text-gray-100 mb-4">
+        <div className="relative text-center text-gray-900 dark:text-gray-100 mb-4">
+          {/* Dropdown at top */}
+          <div className="absolute right-0 top-0" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              aria-label="More options"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+              </svg>
+            </button>
+            {dropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 py-1 w-40 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-10">
+                <Link
+                  href="/leaderboard?tab=famous"
+                  onClick={() => setDropdownOpen(false)}
+                  className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  Profile
+                </Link>
+              </div>
+            )}
+          </div>
           <h1 className="text-xl font-bold">Share what you appreciate</h1>
           <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Give aura to this famous person</p>
         </div>
@@ -208,19 +426,19 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
         {/* Person Info */}
         <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 mb-6">
           <div className="flex items-center gap-4 mb-4">
-            {famousPerson.imageUrl ? (
+            {famousPerson.imageUrl && !imageError ? (
               <Image
                 src={famousPerson.imageUrl}
                 alt={famousPerson.name}
                 width={64}
                 height={64}
                 className="w-16 h-16 rounded-full object-cover flex-shrink-0"
+                unoptimized
+                onError={() => setImageError(true)}
               />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-                <svg className="h-8 w-8 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
+              <div className="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 text-2xl font-semibold text-gray-600 dark:text-gray-300">
+                {(famousPerson.name || '?').charAt(0).toUpperCase()}
               </div>
             )}
             <div>
@@ -231,14 +449,6 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
                 <span className="text-gray-600 dark:text-gray-400 text-sm ml-2">Total Aura</span>
               </div>
             </div>
-          </div>
-          <div className="text-center">
-            <Link
-              href="/leaderboard"
-              className="inline-block px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-md hover:opacity-90 text-sm font-medium"
-            >
-              View on leaderboard
-            </Link>
           </div>
         </div>
 
@@ -271,8 +481,21 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
               const legend = getScoreLegend(val);
               return (
                 <div key={q.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-4 py-3 border-b border-gray-100 dark:border-gray-800/60 last:border-0">
-                  <div className="flex-shrink-0 sm:w-28 text-center sm:text-left">
+                  <div className="relative flex-shrink-0 sm:w-28 text-center sm:text-left flex items-center justify-center sm:justify-start gap-1" data-tooltip-trigger>
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{q.question}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setOpenTooltipId(openTooltipId === q.id ? null : q.id); }}
+                      className="inline-flex items-center justify-center w-4 h-4 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 text-xs font-medium"
+                      aria-label={`What does ${q.question} mean?`}
+                    >
+                      i
+                    </button>
+                    {openTooltipId === q.id && (
+                      <div className="absolute left-0 sm:left-0 top-full mt-2 z-20 p-3 rounded-lg bg-gray-900 dark:bg-gray-800 text-gray-100 text-sm shadow-lg border border-gray-700 w-[calc(100vw-2rem)] sm:w-64 max-w-[280px]" data-tooltip-content>
+                        {q.description}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <div className="flex items-center justify-center gap-2 relative">
@@ -317,10 +540,15 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
         </div>
 
         {/* Submit - match group page */}
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+        <div className="flex flex-col items-center gap-2">
+          {totalGiven === 0 && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              You&apos;re submitting neutral (0) on all categories.
+            </p>
+          )}
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting || !canSubmit}
+            disabled={isSubmitting}
             className="py-3 px-8 rounded-md bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? (

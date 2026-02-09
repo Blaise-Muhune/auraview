@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -69,6 +69,36 @@ export function Nav({
   const pathname = usePathname();
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [contactCount, setContactCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+    let cancelled = false;
+    const fetchCount = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/admin/contact-count', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: token }),
+        });
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        setContactCount((data as { count?: number }).count ?? 0);
+      } catch {
+        // ignore
+      }
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 60000);
+    const handler = () => fetchCount();
+    window.addEventListener('contact-count-updated', handler);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('contact-count-updated', handler);
+    };
+  }, [isAdmin, user]);
 
   const navLinkClasses = (href: string) => {
     const isActive = pathname === href || (href !== '/' && pathname?.startsWith(href));
@@ -162,8 +192,13 @@ export function Nav({
             </div>
           )}
           {isAdmin && (
-            <Link href="/admin" className="hidden sm:flex items-center px-2 py-1.5 text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors" title="Admin">
+            <Link href="/admin" className="hidden sm:flex items-center gap-1.5 px-2 py-1.5 text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors" title="Admin">
               Admin
+              {contactCount > 0 && (
+                <span className="min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center text-xs font-semibold text-white bg-amber-500 rounded-full" aria-label={`${contactCount} unread messages`}>
+                  {contactCount > 99 ? '99+' : contactCount}
+                </span>
+              )}
             </Link>
           )}
           {rightContent}
@@ -213,6 +248,11 @@ export function Nav({
               <Link href="/admin" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors">
                 <span className="w-5 h-5 flex items-center justify-center font-semibold">A</span>
                 Admin
+                {contactCount > 0 && (
+                  <span className="min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center text-xs font-semibold text-white bg-amber-500 rounded-full">
+                    {contactCount > 99 ? '99+' : contactCount}
+                  </span>
+                )}
               </Link>
             )}
             <button

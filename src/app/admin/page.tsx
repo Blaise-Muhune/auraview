@@ -30,6 +30,14 @@ type AdminStats = {
   overview: { name: string; value: number; fill: string }[];
 };
 
+type ContactMessage = {
+  id: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string | null;
+};
+
 export default function AdminPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -37,6 +45,8 @@ export default function AdminPage() {
   const [statsError, setStatsError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [contactMessages, setContactMessages] = useState<ContactMessage[]>([]);
+  const [contactLoading, setContactLoading] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -53,6 +63,7 @@ export default function AdminPage() {
       return;
     }
     loadStats();
+    loadContactMessages();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadStats depends on user, runs on mount
   }, [user, router]);
 
@@ -78,6 +89,62 @@ export default function AdminPage() {
       setStatsError(err instanceof Error ? err.message : 'Failed to load stats');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const loadContactMessages = async () => {
+    if (!user) return;
+    setContactLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/admin/contact-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setContactMessages((data as { messages?: ContactMessage[] }).messages ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setContactLoading(false);
+    }
+  };
+
+  const markMessageRead = async (messageId: string) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/admin/contact-mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token, messageId }),
+      });
+      if (!res.ok) return;
+      setContactMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, read: true } : m))
+      );
+      window.dispatchEvent(new Event('contact-count-updated'));
+    } catch {
+      // ignore
+    }
+  };
+
+  const markAllRead = async () => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/admin/contact-mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token, markAll: true }),
+      });
+      if (!res.ok) return;
+      setContactMessages((prev) => prev.map((m) => ({ ...m, read: true })));
+      window.dispatchEvent(new Event('contact-count-updated'));
+    } catch {
+      // ignore
     }
   };
 
@@ -114,7 +181,7 @@ export default function AdminPage() {
             </p>
           </div>
           <button
-            onClick={loadStats}
+            onClick={() => { loadStats(); loadContactMessages(); }}
             disabled={refreshing}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
@@ -279,6 +346,59 @@ export default function AdminPage() {
             </div>
           </>
         )}
+
+        {/* Contact messages */}
+        <div className="mb-8 p-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Contact messages</h2>
+            {contactMessages.some((m) => !m.read) && (
+              <button
+                onClick={markAllRead}
+                className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300"
+              >
+                Mark all as read
+              </button>
+            )}
+          </div>
+          {contactLoading ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading messages...</p>
+          ) : contactMessages.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No contact messages yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {contactMessages.map((msg) => (
+                <li
+                  key={msg.id}
+                  className={`p-4 rounded-lg border ${
+                    msg.read
+                      ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950/50'
+                      : 'border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{msg.title}</p>
+                      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words">{msg.message}</p>
+                      {msg.createdAt && (
+                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-500">
+                          {new Date(msg.createdAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    {!msg.read && (
+                      <button
+                        onClick={() => markMessageRead(msg.id)}
+                        className="shrink-0 px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
+                      >
+                        Mark read
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         {!stats && !statsError && (
           <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-400">

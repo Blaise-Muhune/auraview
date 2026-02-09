@@ -14,15 +14,27 @@ interface UserRanking {
   totalAura: number | null;
   groupsJoined: number;
   ratingsReceived: number;
+  questionTotals?: { [key: string]: number };
   isUnrated?: boolean;
 }
 
-interface GlobalStats {
-  totalUsers: number;
-  totalRatings: number;
-  averageAura: number | null;
-  highestAura: number | null;
-}
+const USER_SORT_OPTIONS = [
+  { value: 'total', label: 'Total Aura' },
+  { value: 'presence_energy', label: 'Room presence' },
+  { value: 'authenticity_self_vibe', label: 'Authenticity' },
+  { value: 'social_pull', label: 'Vibe' },
+  { value: 'style_aesthetic', label: 'Style' },
+  { value: 'trustworthy', label: 'Trustworthy' },
+] as const;
+
+const FAMOUS_SORT_OPTIONS = [
+  { value: 'total', label: 'Total Aura' },
+  { value: 'talent', label: 'Talent' },
+  { value: 'achievement', label: 'Achievement' },
+  { value: 'charisma', label: 'Charisma' },
+  { value: 'reputation', label: 'Reputation' },
+  { value: 'impact', label: 'Impact' },
+] as const;
 
 interface TMDBPerson {
   id: number;
@@ -36,7 +48,6 @@ function LeaderboardContent() {
   const { user, loading } = useAuth();
   const searchParams = useSearchParams();
   const [rankings, setRankings] = useState<UserRanking[]>([]);
-  const [stats, setStats] = useState<GlobalStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentUserRank, setCurrentUserRank] = useState<number | null>(null);
@@ -49,6 +60,9 @@ function LeaderboardContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [famousPage, setFamousPage] = useState(1);
+  const [famousVotesBannerDismissed, setFamousVotesBannerDismissed] = useState(false);
+  const [sortBy, setSortBy] = useState<string>('total');
+  const [famousSortBy, setFamousSortBy] = useState<string>('total');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const famousPeopleRef = useRef<FamousPerson[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -76,8 +90,8 @@ function LeaderboardContent() {
     if (loading) return;
     loadLeaderboardData();
     loadFamousPeople();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once when auth state is known
-  }, [loading, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user, sortBy]);
 
   useEffect(() => {
     famousPeopleRef.current = famousPeople;
@@ -108,6 +122,19 @@ function LeaderboardContent() {
       }
     }
   }, [userSearchQuery, rankings, user]);
+
+  // Sort famous people when famousSortBy changes
+  useEffect(() => {
+    setFilteredFamousPeople((prev) => {
+      const sorted = [...prev].sort((a, b) => {
+        if (famousSortBy === 'total') return b.totalAura - a.totalAura;
+        const aVal = a.questionTotals?.[famousSortBy] ?? 0;
+        const bVal = b.questionTotals?.[famousSortBy] ?? 0;
+        return bVal - aVal;
+      });
+      return sorted;
+    });
+  }, [famousSortBy]);
 
   const loadFamousPeople = async () => {
     if (!hasValidApiKey) return;
@@ -145,7 +172,11 @@ function LeaderboardContent() {
             };
           })
       );
-      const sorted = famousPeopleArray.sort((a, b) => b.totalAura - a.totalAura);
+      const withQuestionTotals = famousPeopleArray.map((fp) => ({
+        ...fp,
+        questionTotals: famousPeopleData[fp.id]?.questionTotals ?? {},
+      }));
+      const sorted = withQuestionTotals.sort((a, b) => b.totalAura - a.totalAura);
       setFamousPeople(sorted);
       setFilteredFamousPeople(sorted);
     } catch {
@@ -228,13 +259,13 @@ function LeaderboardContent() {
     try {
       setIsLoading(true);
       setError(null);
-      const { rankings: rankingsData, stats: statsData } = await getLeaderboardData(
-        user ? () => user.getIdToken() : () => Promise.resolve(undefined)
+      const { rankings: rankingsData } = await getLeaderboardData(
+        user ? () => user.getIdToken() : () => Promise.resolve(undefined),
+        sortBy
       );
 
       setRankings(rankingsData);
       setFilteredRankings(rankingsData);
-      setStats(statsData);
 
       if (user) {
         const userRank = rankingsData.findIndex((r) => r.userId === user.uid);
@@ -306,36 +337,10 @@ function LeaderboardContent() {
           <p className="mb-6 text-red-600 dark:text-red-400 text-sm">{error}</p>
         )}
 
-        {/* Stats Cards */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-12">
-            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-                {stats.highestAura != null ? stats.highestAura.toLocaleString() : '—'}
-              </div>
-              <div className="text-gray-500 dark:text-gray-400 text-xs">Highest Score</div>
-            </div>
-            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-                {stats.averageAura != null ? stats.averageAura.toLocaleString() : '—'}
-              </div>
-              <div className="text-gray-500 dark:text-gray-400 text-xs">Average Score</div>
-            </div>
-            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{stats.totalUsers.toLocaleString()}</div>
-              <div className="text-gray-500 dark:text-gray-400 text-xs">Active Users</div>
-            </div>
-            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{stats.totalRatings.toLocaleString()}</div>
-              <div className="text-gray-500 dark:text-gray-400 text-xs">Total Ratings</div>
-            </div>
-          </div>
-        )}
-
         <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">Global Rankings</h2>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">Aura Rankings</h2>
               <div className="flex gap-2 w-full sm:w-auto">
                 <button
                   onClick={() => handleTabChange('users')}
@@ -363,8 +368,22 @@ function LeaderboardContent() {
 
           {activeTab === 'users' ? (
           <>
-              {/* Search Bar for Users */}
-              <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 dark:border-gray-800">
+              {/* Filter + Search for Users */}
+              <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 dark:border-gray-800 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Sort by:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500"
+                  >
+                    {USER_SORT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -441,7 +460,9 @@ function LeaderboardContent() {
                         <div className="text-center mb-2 min-w-0 px-1">
                           <div className="text-[13px] text-gray-900 dark:text-gray-100 truncate max-w-full" title={r.displayName}>{r.displayName}</div>
                           {isYou && <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">You</span>}
-                          <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>{r.totalAura?.toLocaleString() ?? '—'}</div>
+                          <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                            {sortBy === 'total' ? (r.totalAura?.toLocaleString() ?? '—') : (r.questionTotals?.[sortBy] ?? 0).toLocaleString()}
+                          </div>
                         </div>
                         <div className={`w-full ${bg} ${h} rounded-t`} />
                         <div className={`w-full h-5 ${bgFoot} rounded-b flex items-center justify-center`}>
@@ -484,10 +505,14 @@ function LeaderboardContent() {
                       const auraLevel = getAuraLevel(userRanking.totalAura ?? 0);
                       const isCurrentUser = user && userRanking.userId === user.uid;
 
+                      const userRowHref = isCurrentUser
+                        ? (user ? `/profile/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${userRanking.userId}`)}`)
+                        : (user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`);
                       return (
-                        <div
+                        <Link
                           key={userRanking.userId}
-                          className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors ${
+                          href={userRowHref}
+                          className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors cursor-pointer ${
                             isCurrentUser ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''
                           }`}
                         >
@@ -513,26 +538,19 @@ function LeaderboardContent() {
                               </div>
                             </div>
                           </div>
-                          <div className="text-gray-900 dark:text-gray-100 font-mono font-semibold text-lg tabular-nums">
-                            {userRanking.totalAura != null ? userRanking.totalAura.toLocaleString() : '—'}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Link
-                              href={user ? `/profile/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${userRanking.userId}`)}`}
-                              className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors py-1.5"
-                            >
-                              Profile
-                            </Link>
-                            {userRanking.userId !== user?.uid && (
-                              <Link
-                                href={user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`}
-                                className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors py-1.5 px-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
-                              >
-                                Rate
-                              </Link>
+                          <div className="text-right">
+                            <div className="text-gray-900 dark:text-gray-100 font-mono font-semibold text-lg tabular-nums">
+                              {sortBy === 'total'
+                                ? (userRanking.totalAura != null ? userRanking.totalAura.toLocaleString() : '—')
+                                : (userRanking.questionTotals?.[sortBy] ?? 0).toLocaleString()}
+                            </div>
+                            {sortBy !== 'total' && userRanking.totalAura != null && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                                total {userRanking.totalAura.toLocaleString()}
+                              </div>
                             )}
                           </div>
-                        </div>
+                        </Link>
                       );
                     });
                     })()}
@@ -572,6 +590,37 @@ function LeaderboardContent() {
           </>
           ) : (
             <div className="px-4 sm:px-8 py-4 sm:py-6">
+              {/* Sort for Famous People */}
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <span className="text-sm text-gray-500 dark:text-gray-400">Sort by:</span>
+                <select
+                  value={famousSortBy}
+                  onChange={(e) => setFamousSortBy(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500"
+                >
+                  {FAMOUS_SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {!famousVotesBannerDismissed && (
+                <div className="mb-4 flex items-center justify-between gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60">
+                  <p className="text-sm text-amber-900 dark:text-amber-200">
+                    Light on votes—share with friends to grow the rankings.
+                  </p>
+                  <button
+                    onClick={() => setFamousVotesBannerDismissed(true)}
+                    className="shrink-0 p-1 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded transition-colors"
+                    aria-label="Dismiss"
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
               <div className="mb-6">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -608,12 +657,6 @@ function LeaderboardContent() {
                 )}
               </div>
 
-              <div className="mb-6 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60">
-                <p className="text-sm text-amber-900 dark:text-amber-200">
-                  Still light on votes. Share it with friends and get them to add who they appreciate. It helps make the rankings feel real.
-                </p>
-              </div>
-
               {filteredFamousPeople.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -643,7 +686,8 @@ function LeaderboardContent() {
                     if (top3Ranked.length < 3) return null;
                     const [second, first, third] = [top3Ranked[1], top3Ranked[0], top3Ranked[2]];
                     const FamousPodiumSlot = ({ fp, rank, bg, bgFoot }: { fp: FamousPerson; rank: number; bg: string; bgFoot: string }) => {
-                      const href = user ? `/rate-famous/${fp.id}` : `/login?redirect=${encodeURIComponent(`/rate-famous/${fp.id}`)}`;
+                      const base = `/rate-famous/${fp.id}`;
+                      const href = user ? `${base}?rank=${rank}` : `/login?redirect=${encodeURIComponent(base + '?rank=' + rank)}`;
                       const h = rank === 1 ? 'h-20 sm:h-24' : rank === 2 ? 'h-14 sm:h-16' : 'h-10 sm:h-12';
                       const slotClass = 'flex flex-col items-center flex-1 max-w-[90px] sm:max-w-[110px] cursor-pointer hover:opacity-90 transition-opacity rounded-lg';
                       const content = (
@@ -657,7 +701,9 @@ function LeaderboardContent() {
                           </div>
                           <div className="text-center mb-2 min-w-0 px-1">
                             <div className="text-[13px] text-gray-900 dark:text-gray-100 truncate max-w-full" title={fp.name}>{fp.name}</div>
-                            <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>{fp.totalAura.toLocaleString()}</div>
+                            <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                              {famousSortBy === 'total' ? fp.totalAura.toLocaleString() : (fp.questionTotals?.[famousSortBy] ?? 0).toLocaleString()}
+                            </div>
                           </div>
                           <div className={`w-full ${bg} ${h} rounded-t`} />
                           <div className={`w-full h-5 ${bgFoot} rounded-b flex items-center justify-center`}>
@@ -693,6 +739,11 @@ function LeaderboardContent() {
                     const paginated = listPeople.slice(start, start + RANKINGS_PER_PAGE);
                     const totalListPages = Math.ceil(listPeople.length / RANKINGS_PER_PAGE);
 
+                    const famousRowHref = (fpId: string, rankNum: number) => {
+                      const base = `/rate-famous/${fpId}`;
+                      const q = rankNum > 0 ? `?rank=${rankNum}` : '';
+                      return user ? `${base}${q}` : `/login?redirect=${encodeURIComponent(base + q)}`;
+                    };
                     return (
                       <>
                         <div className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -700,7 +751,11 @@ function LeaderboardContent() {
                             const actualRank = fp.isUnrated ? -1 : (famousPeople.findIndex(f => f.id === fp.id) + 1);
                             const auraLevel = getAuraLevel(fp.totalAura);
                             return (
-                              <div key={fp.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30">
+                              <Link
+                                key={fp.id}
+                                href={famousRowHref(fp.id, actualRank > 0 ? actualRank : 0)}
+                                className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors cursor-pointer"
+                              >
                                 <div className="w-10 shrink-0">
                                   {actualRank === -1 ? (
                                     <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 text-xs font-mono">NR</div>
@@ -722,11 +777,15 @@ function LeaderboardContent() {
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{fp.ratingsReceived} ratings</div>
                                   </div>
                                 </div>
-                                <div className="text-gray-900 dark:text-gray-100 font-mono font-semibold text-lg tabular-nums">{fp.totalAura.toLocaleString()}</div>
-                                <Link href={user ? `/rate-famous/${fp.id}` : `/login?redirect=${encodeURIComponent(`/rate-famous/${fp.id}`)}`} className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-2 py-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">
-                                  Rate
-                                </Link>
-                              </div>
+                                <div className="text-right">
+                                  <div className="text-gray-900 dark:text-gray-100 font-mono font-semibold text-lg tabular-nums">
+                                    {famousSortBy === 'total' ? fp.totalAura.toLocaleString() : (fp.questionTotals?.[famousSortBy] ?? 0).toLocaleString()}
+                                  </div>
+                                  {famousSortBy !== 'total' && (
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">total {fp.totalAura.toLocaleString()}</div>
+                                  )}
+                                </div>
+                              </Link>
                             );
                           })}
                         </div>
