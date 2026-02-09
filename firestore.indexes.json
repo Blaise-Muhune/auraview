@@ -4,8 +4,16 @@
       "collectionGroup": "ratings",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "groupId", "order": "ASCENDING" },
-        { "fieldPath": "fromUserId", "order": "ASCENDING" }
+        {"fieldPath": "groupId", "order": "ASCENDING"},
+        {"fieldPath": "fromUserId", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "famousPersonRatings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "famousPersonId", "order": "ASCENDING"},
+        {"fieldPath": "fromUserId", "order": "ASCENDING"}
       ]
     }
   ],

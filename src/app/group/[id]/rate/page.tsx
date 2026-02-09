@@ -6,7 +6,10 @@ import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { use } from "react";
-import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, getUserProfile } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, getUserProfile, updateUserProfile } from "@/lib/firestore";
+import { getScoreLegend } from "@/lib/rating-scale";
+import { sendNotification } from "@/lib/notify";
+import { LeaderboardConsent } from "@/components/LeaderboardConsent";
 
 interface RatePageProps {
   params: Promise<{
@@ -24,6 +27,8 @@ export default function RatePage({ params }: RatePageProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showLeaderboardConsent, setShowLeaderboardConsent] = useState(false);
+  const [consentSaving, setConsentSaving] = useState(false);
   const [ratings, setRatings] = useState<{[key: string]: number}>({});
   // const [reasons, setReasons] = useState<{[key: string]: string}>({});
   const POINTS_PER_PERSON = 10000;
@@ -33,6 +38,7 @@ export default function RatePage({ params }: RatePageProps) {
   const [currentParticipantIndex, setCurrentParticipantIndex] = useState(0);
   const [currentStep, setCurrentStep] = useState(0); // 0 = rating, 1 = review
   const [alreadyRatedIds, setAlreadyRatedIds] = useState<Set<string>>(new Set());
+  const [flash, setFlash] = useState<{ key: string; label: string; id: number } | null>(null);
 
   // 5 core questions - enough to mean something, not a chore
   const auraQuestions = [
@@ -73,18 +79,6 @@ export default function RatePage({ params }: RatePageProps) {
     }
   ];
 
-  // Quick-tap values - cohesive palette (darker in dark mode)
-  const positivePoints = [
-    { label: '+2000', value: 2000, color: 'bg-emerald-50 dark:bg-emerald-950/60 dark:border-emerald-900/60 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50' },
-    { label: '+1000', value: 1000, color: 'bg-emerald-50 dark:bg-emerald-950/60 dark:border-emerald-900/60 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50' },
-    { label: '+500', value: 500, color: 'bg-emerald-50 dark:bg-emerald-950/60 dark:border-emerald-900/60 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/50' },
-  ];
-  const zeroPoint = { label: '0', value: 0, color: 'bg-gray-50 dark:bg-gray-800/80 dark:border-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-600 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/80' };
-  const negativePoints = [
-    { label: '-2000', value: -2000, color: 'bg-rose-50 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 border border-rose-100 dark:border-rose-800/60 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50' },
-    { label: '-1000', value: -1000, color: 'bg-rose-50 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 border border-rose-100 dark:border-rose-800/60 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50' },
-    { label: '-500', value: -500, color: 'bg-rose-50 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 border border-rose-100 dark:border-rose-800/60 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50' },
-  ];
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
@@ -94,12 +88,14 @@ export default function RatePage({ params }: RatePageProps) {
     if (user && id) {
       loadGroup();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadGroup runs on auth/group change
   }, [user, loading, id, router]);
 
   useEffect(() => {
     if (group) {
       loadParticipantNames();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadParticipantNames runs when group loads
   }, [group]);
 
   // Set initial participant index to first unrated when data loads; redirect to results if all rated
@@ -114,7 +110,7 @@ export default function RatePage({ params }: RatePageProps) {
     } else {
       setCurrentParticipantIndex(0);
     }
-  }, [group, alreadyRatedIds, user?.uid, router]);
+  }, [group, alreadyRatedIds, user, router]);
 
   const loadGroup = async () => {
     if (!user) return;
@@ -185,6 +181,30 @@ export default function RatePage({ params }: RatePageProps) {
       ...prev,
       [questionKey]: points
     }));
+  };
+
+  const MAX_PER_QUESTION = 2000;
+
+  const handleAdd500 = (participantId: string, questionId: string) => {
+    const key = `${participantId}_${questionId}`;
+    const val = ratings[key] ?? 0;
+    const newVal = Math.min(val + 500, MAX_PER_QUESTION);
+    if (newVal !== val) {
+      handleQuestionRating(participantId, questionId, newVal);
+      setFlash({ key, label: '+500', id: Date.now() });
+      setTimeout(() => setFlash(null), 600);
+    }
+  };
+
+  const handleRemove500 = (participantId: string, questionId: string) => {
+    const key = `${participantId}_${questionId}`;
+    const val = ratings[key] ?? 0;
+    const newVal = Math.max(val - 500, -MAX_PER_QUESTION);
+    if (newVal !== val) {
+      handleQuestionRating(participantId, questionId, newVal);
+      setFlash({ key, label: '-500', id: Date.now() });
+      setTimeout(() => setFlash(null), 600);
+    }
   };
 
   const getCurrentParticipant = () => {
@@ -259,14 +279,29 @@ export default function RatePage({ params }: RatePageProps) {
       });
       
       await Promise.all(ratingPromises);
+      // Notify recipients (non-blocking)
+      const fromName = user.displayName || 'Someone';
+      const token = await user.getIdToken();
+      Object.entries(participantRatings).forEach(([participantId, points]) => {
+        if (points !== 0 && participantId !== user.uid) {
+          sendNotification(participantId, 'rating_received', {
+            fromUserDisplayName: fromName,
+            points: String(points),
+            groupName: group.name,
+          }, { token, fromUserId: user.uid });
+        }
+      });
       setSuccess('Appreciation shared!');
       
-      // Redirect to group page after a short delay
-      setTimeout(() => {
-        if (group.id) {
-          router.push(`/group/${group.id}/results`);
-        }
-      }, 1500);
+      const profile = await getUserProfile(user.uid);
+      const needsConsent = profile?.showOnLeaderboard === undefined || profile?.showOnGroupLeaderboard === undefined;
+      if (needsConsent) {
+        setShowLeaderboardConsent(true);
+      } else {
+        setTimeout(() => {
+          if (group.id) router.push(`/group/${group.id}/results`);
+        }, 1500);
+      }
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit ratings');
@@ -291,10 +326,10 @@ export default function RatePage({ params }: RatePageProps) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
         <Nav showBack backHref="/dashboard" />
-        <main className="max-w-md mx-auto px-4 py-12 text-center">
+        <main className="max-w-xl mx-auto px-5 py-10 text-center">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Group Not Found</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error || 'The group you are looking for does not exist.'}</p>
-          <Link href="/dashboard" className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90">
+          <Link href="/dashboard" className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:opacity-90">
             Back to Dashboard
           </Link>
         </main>
@@ -306,6 +341,42 @@ export default function RatePage({ params }: RatePageProps) {
     return null;
   }
 
+  if (showLeaderboardConsent && success) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref="/my-groups" />
+        <main className="max-w-xl mx-auto px-5 py-10">
+          <p className="text-center text-green-600 dark:text-green-400 mb-6">{success}</p>
+          <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-6">
+            <LeaderboardConsent
+              displayName={user.displayName || 'Your name'}
+              includeGroupLeaderboard
+              onSave={async (global, groupChoice) => {
+                if (!user) return;
+                setConsentSaving(true);
+                try {
+                  await updateUserProfile(user.uid, {
+                    showOnLeaderboard: global.show,
+                    leaderboardAnonymous: global.anonymous,
+                    ...(groupChoice && {
+                      showOnGroupLeaderboard: groupChoice.show,
+                      groupLeaderboardAnonymous: groupChoice.anonymous,
+                    }),
+                  });
+                  setShowLeaderboardConsent(false);
+                  router.push(`/group/${group.id}/results`);
+                } finally {
+                  setConsentSaving(false);
+                }
+              }}
+              isLoading={consentSaving}
+            />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const uniqueVoters = new Set(groupRatings.map((r: { fromUserId: string }) => r.fromUserId)).size;
   const votingClosed = isVotingClosed(group, uniqueVoters);
   const participants = group.participants.filter(pid => pid !== user.uid);
@@ -314,14 +385,14 @@ export default function RatePage({ params }: RatePageProps) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
         <Nav showBack backHref="/my-groups" />
-        <main className="max-w-md mx-auto px-4 py-12 text-center">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Voting is closed</h2>
+        <main className="max-w-xl mx-auto px-5 py-10 text-center">
+          <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Voting is closed</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">
             This group&apos;s voting period has ended. Check out the results and share your ranking card.
           </p>
           <Link
             href={`/group/${group.id}/results`}
-            className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90"
+            className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:opacity-90"
           >
             See results
           </Link>
@@ -334,10 +405,10 @@ export default function RatePage({ params }: RatePageProps) {
     <div className="min-h-screen bg-white dark:bg-gray-950">
       <Nav showBack backHref="/my-groups" />
 
-      <main className="max-w-2xl mx-auto px-4 py-8">
+      <main className="max-w-xl mx-auto px-5 py-10">
         <div className="max-w-4xl mx-auto">
           <div className="text-center text-gray-900 dark:text-gray-100 mb-4">
-            <h1 className="text-xl font-bold">Share what you appreciate</h1>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100">Share what you appreciate</h1>
             <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">10,000 points per person</p>
           </div>
 
@@ -349,7 +420,7 @@ export default function RatePage({ params }: RatePageProps) {
             <p className="mb-4 text-green-600 dark:text-green-400 text-sm">{success}</p>
           )}
 
-          <div className="border border-gray-200 dark:border-gray-800/60 dark:bg-gray-900/30 rounded-md p-4 mb-6">
+          <div className="border border-gray-200 dark:border-gray-800/60 dark:bg-gray-900/30 rounded-xl p-4 mb-6">
             
             {participants.length === 0 ? (
               <div className="text-center text-gray-500 dark:text-gray-400 py-8">
@@ -396,9 +467,9 @@ export default function RatePage({ params }: RatePageProps) {
                             onClick={() => setCurrentParticipantIndex(idx)}
                             className={`min-w-[2rem] px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                               isCurrent
-                                ? 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-gray-950'
+                                ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 ring-2 ring-amber-500 ring-offset-2 dark:ring-offset-gray-950'
                                 : rated
-                                  ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/50'
+                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/30'
                                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                             }`}
                             title={name}
@@ -411,9 +482,9 @@ export default function RatePage({ params }: RatePageProps) {
                     {/* Who we're rating + total given */}
                     <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 text-center">{participantName}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
-                      {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given
+                      {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given (±2,000 per question)
                     </p>
-                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-6 relative">
+                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-2 relative">
                       <div className="absolute left-1/2 top-0 w-0.5 h-full bg-gray-400 dark:bg-gray-600 -translate-x-px z-10" />
                       <div 
                         className="absolute top-0 h-full transition-all"
@@ -425,57 +496,53 @@ export default function RatePage({ params }: RatePageProps) {
                         }}
                       />
                     </div>
-                    
-                    {/* All 5 questions - compact rows with quick-tap */}
+
+                    {/* All 5 questions - +500 / -500 per section */}
                     <div className="space-y-4">
                       {auraQuestions.map((q) => {
                         const key = `${currentParticipant}_${q.id}`;
                         const val = ratings[key] ?? 0;
+                        const legend = getScoreLegend(val);
                         return (
-                          <div key={q.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 py-3 border-b border-gray-100 dark:border-gray-800/60 last:border-0">
-                            <div className="flex-shrink-0 sm:w-28">
+                          <div key={q.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-4 py-3 border-b border-gray-100 dark:border-gray-800/60 last:border-0">
+                            <div className="flex-shrink-0 sm:w-28 text-center sm:text-left">
                               <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{q.question}</span>
                             </div>
-                            <div className="flex items-stretch gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleQuestionRating(currentParticipant, q.id, zeroPoint.value)}
-                                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center justify-center self-center ${
-                                  val === zeroPoint.value ? 'ring-2 ring-blue-500 dark:ring-blue-600 dark:ring-offset-gray-950 ring-offset-1 ' + zeroPoint.color : zeroPoint.color + ' opacity-80 hover:opacity-100'
-                                }`}
-                              >
-                                {zeroPoint.label}
-                              </button>
-                              <div className="flex flex-col gap-2">
-                                <div className="flex gap-1.5 flex-wrap">
-                                  {positivePoints.map((p) => (
-                                    <button
-                                      key={p.value}
-                                      type="button"
-                                      onClick={() => handleQuestionRating(currentParticipant, q.id, p.value)}
-                                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${
-                                        val === p.value ? 'ring-2 ring-blue-500 dark:ring-blue-600 dark:ring-offset-gray-950 ring-offset-1 ' + p.color : p.color + ' opacity-80 hover:opacity-100'
-                                      }`}
-                                    >
-                                      {p.label}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="flex gap-1.5 flex-wrap">
-                                  {negativePoints.map((p) => (
-                                    <button
-                                      key={p.value}
-                                      type="button"
-                                      onClick={() => handleQuestionRating(currentParticipant, q.id, p.value)}
-                                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${
-                                        val === p.value ? 'ring-2 ring-blue-500 dark:ring-blue-600 dark:ring-offset-gray-950 ring-offset-1 ' + p.color : p.color + ' opacity-80 hover:opacity-100'
-                                      }`}
-                                    >
-                                      {p.label}
-                                    </button>
-                                  ))}
-                                </div>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="flex items-center justify-center gap-2 relative">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemove500(currentParticipant, q.id)}
+                                  disabled={val <= -MAX_PER_QUESTION}
+                                  className="px-3 py-2 text-sm font-medium rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-100 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  −500
+                                </button>
+                                <span className={`min-w-[4rem] text-center text-sm font-semibold ${val >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                  {val > 0 ? '+' : ''}{val}
+                                </span>
+                                {flash?.key === key && (
+                                  <span
+                                    key={flash.id}
+                                    className={`absolute left-1/2 -translate-x-1/2 -top-1 text-sm font-bold animate-[fadeUpOut_0.6s_ease-out_forwards] pointer-events-none ${
+                                      flash.label.startsWith('+') ? 'text-emerald-500' : 'text-rose-500'
+                                    }`}
+                                  >
+                                    {flash.label}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdd500(currentParticipant, q.id)}
+                                  disabled={val >= MAX_PER_QUESTION}
+                                  className="px-3 py-2 text-sm font-medium rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  +500
+                                </button>
                               </div>
+                              <p className={`text-[11px] font-medium ${val < 0 ? 'text-rose-500 dark:text-rose-400' : val > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                                {legend}
+                              </p>
                             </div>
                           </div>
                         );
@@ -487,19 +554,19 @@ export default function RatePage({ params }: RatePageProps) {
                       <button
                         onClick={handlePrevPerson}
                         disabled={currentParticipantIndex === 0}
-                        className="flex-1 py-3 px-4 rounded-md bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex-1 py-3 px-4 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         ← Back
                       </button>
                       <button
                         onClick={handleSkipPerson}
-                        className="py-3 px-4 rounded-md bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-600 dark:text-gray-500 font-medium hover:bg-gray-200 dark:hover:bg-gray-700/80"
+                        className="py-3 px-4 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-600 dark:text-gray-500 font-medium hover:bg-gray-200 dark:hover:bg-gray-700/80"
                       >
                         Skip
                       </button>
                       <button
                         onClick={handleNextPerson}
-                        className="flex-1 py-3 px-4 rounded-md bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500"
+                        className="flex-1 py-3 px-4 rounded-xl bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500"
                       >
                         {getNextUnratedIndex() === -1 ? 'Done →' : 'Next →'}
                       </button>
@@ -539,14 +606,14 @@ export default function RatePage({ params }: RatePageProps) {
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={() => setCurrentStep(0)}
-                className="py-3 px-6 rounded-md bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80"
+                className="py-3 px-6 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80"
               >
                 ← Edit
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting || participants.length === 0}
-                className="py-3 px-8 rounded-md bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="py-3 px-8 rounded-xl bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">

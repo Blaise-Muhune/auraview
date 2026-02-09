@@ -73,9 +73,11 @@ function LoginContent() {
     <div className="min-h-screen bg-white dark:bg-gray-950">
       <Nav showAuth />
 
-      <main className="max-w-sm mx-auto px-4 py-16">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Log in</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Continue with Google</p>
+      <main className="max-w-xl mx-auto px-5 py-10">
+        <header className="mb-10">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Log in</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Continue with Google</p>
+        </header>
 
         {error && (
           <p className="text-red-600 dark:text-red-400 text-sm mb-4">{error}</p>
@@ -84,7 +86,7 @@ function LoginContent() {
         <button
           onClick={handleGoogleSignIn}
           disabled={isSigningIn}
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900 flex items-center justify-center gap-2 disabled:opacity-50"
+          className="w-full px-5 py-3 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center gap-2 disabled:opacity-50 text-[13px]"
         >
           {isSigningIn ? (
             <span>Signing in...</span>

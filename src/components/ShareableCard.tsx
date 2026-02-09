@@ -11,7 +11,7 @@ export interface ShareableCardProps {
   subline: string;
 }
 
-/** Card designed for capture as image - fixed dimensions, self-contained styles for social share */
+/** Card designed for capture as image - shareable, drives traffic to auraview.app */
 export function ShareableCard({
   displayName,
   rank,
@@ -20,102 +20,132 @@ export function ShareableCard({
   headline,
   subline,
 }: ShareableCardProps) {
-  // totalInGroup, groupName are passed for interface compatibility but rendered via headline/subline
-  const appUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  // 360x540 - 2:3 ratio, works well for Instagram/stories
+  const w = 360;
+  const h = 540;
 
-  // 360x450 base size - html2canvas will scale up for high-res output
   return (
     <div
-      className="bg-white text-black rounded-2xl overflow-hidden flex flex-col"
+      className="flex flex-col overflow-hidden"
       style={{
-        width: 360,
-        height: 450,
+        width: w,
+        height: h,
+        background: '#ffffff',
         fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
-      {/* Top gradient bar */}
-      <div
-        className="flex-shrink-0 h-3"
-        style={{
-          background: 'linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%)',
-        }}
-      />
+      {/* Accent bar */}
+      <div style={{ height: 4, background: '#f59e0b' }} />
 
-      <div className="flex-1 p-12 flex flex-col">
+      <div style={{ flex: 1, padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {/* Rank badge */}
-        <div className="flex justify-center mb-6">
-          <div
-            className="w-24 h-24 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg"
-            style={{
-              background: rank === 1
-                ? 'linear-gradient(135deg, #eab308, #ca8a04)'
-                : rank === 2
-                  ? 'linear-gradient(135deg, #94a3b8, #64748b)'
-                  : rank === 3
-                    ? 'linear-gradient(135deg, #d97706, #b45309)'
-                    : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-            }}
-          >
-            #{rank}
-          </div>
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: rank === 1 ? '#f59e0b' : '#4b5563',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 20,
+            fontWeight: 700,
+            fontFamily: 'ui-monospace, monospace',
+            marginBottom: 16,
+          }}
+        >
+          #{rank}
         </div>
 
         {/* Name */}
         <h1
-          className="text-4xl font-bold text-center text-gray-900 mb-1"
-          style={{ lineHeight: 1.2 }}
+          style={{
+            fontSize: 28,
+            fontWeight: 600,
+            color: '#171717',
+            margin: 0,
+            marginBottom: 4,
+            textAlign: 'center',
+            lineHeight: 1.2,
+          }}
         >
           {displayName}
         </h1>
 
-        {/* Subline - ranking */}
-        <p className="text-xl text-gray-600 text-center mb-6">
+        {/* Subline */}
+        <p style={{ fontSize: 14, color: '#6b7280', margin: 0, marginBottom: 20, textAlign: 'center' }}>
           {subline}
         </p>
 
-        {/* Aura level + total */}
-        <div className="flex justify-center gap-6 mb-8">
-          <div className="px-5 py-2 rounded-xl bg-blue-50">
-            <span className="text-sm text-blue-600 font-medium">{auraLevel}</span>
+        {/* Aura level + score */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+          <div
+            style={{
+              padding: '8px 14px',
+              border: '1px solid #e5e7eb',
+              fontSize: 13,
+              color: '#6b7280',
+            }}
+          >
+            {auraLevel}
           </div>
-          <div className="px-5 py-2 rounded-xl bg-gray-100">
-            <span className="text-lg font-bold text-gray-900">{totalAura.toLocaleString()}</span>
-            <span className="text-sm text-gray-600 ml-1">aura</span>
+          <div
+            style={{
+              padding: '8px 14px',
+              border: '1px solid #f59e0b',
+              background: 'rgba(245, 158, 11, 0.1)',
+              fontFamily: 'ui-monospace, monospace',
+              fontSize: 18,
+              fontWeight: 700,
+              color: '#d97706',
+            }}
+          >
+            {totalAura.toLocaleString()} aura
           </div>
         </div>
 
-        {/* Headline - main insight */}
-        <div className="flex-1 flex items-center justify-center px-4">
+        {/* Headline quote */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px' }}>
           <p
-            className="text-2xl font-semibold text-center text-gray-800 leading-relaxed"
-            style={{ maxWidth: 900 }}
+            style={{
+              fontSize: 20,
+              color: '#171717',
+              textAlign: 'center',
+              lineHeight: 1.5,
+              margin: 0,
+              fontStyle: 'italic',
+            }}
           >
             &ldquo;{headline}&rdquo;
           </p>
         </div>
 
-        {/* CTA section */}
-        <div className="mt-8 p-6 rounded-xl bg-gray-50 border border-gray-200">
-          <p className="text-lg font-semibold text-gray-900 text-center mb-2">
-            Give me more aura or create your own group
+        {/* CTA - drive traffic */}
+        <div
+          style={{
+            width: '100%',
+            padding: 16,
+            background: '#111827',
+            textAlign: 'center',
+            marginTop: 20,
+          }}
+        >
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', margin: 0, marginBottom: 4 }}>
+            Discover what your friends really think about you
           </p>
-          <p className="text-base text-blue-600 font-medium text-center">
-            {appUrl}
+          <p
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              color: '#f59e0b',
+              margin: 0,
+              letterSpacing: '0.02em',
+            }}
+          >
+            auraview.app
           </p>
         </div>
-      </div>
-
-      {/* App banner */}
-      <div
-        className="flex-shrink-0 flex items-center justify-center gap-3 py-4 px-6"
-        style={{
-          background: 'linear-gradient(90deg, #1e3a8a 0%, #312e81 100%)',
-        }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Aura" width={36} height={36} className="rounded-lg" />
-        <span className="text-white text-lg font-bold">Aura</span>
-        <span className="text-blue-200 text-sm">— Discover what friends really think</span>
       </div>
     </div>
   );

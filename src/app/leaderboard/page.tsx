@@ -1,16 +1,17 @@
 'use client';
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
-import { useRouter } from "next/navigation";
-import { getGlobalRankings, getGlobalStats, getAllFamousPeopleStats, FamousPerson } from "@/lib/firestore";
+import { useSearchParams } from "next/navigation";
+import { getLeaderboardData, getAllFamousPeopleStats, FamousPerson } from "@/lib/firestore";
 
 interface UserRanking {
   userId: string;
   displayName: string;
-  totalAura: number;
+  totalAura: number | null;
   groupsJoined: number;
   ratingsReceived: number;
   isUnrated?: boolean;
@@ -19,8 +20,8 @@ interface UserRanking {
 interface GlobalStats {
   totalUsers: number;
   totalRatings: number;
-  averageAura: number;
-  highestAura: number;
+  averageAura: number | null;
+  highestAura: number | null;
 }
 
 interface TMDBPerson {
@@ -33,7 +34,7 @@ interface TMDBPerson {
 
 export default function Leaderboard() {
   const { user, loading } = useAuth();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const [rankings, setRankings] = useState<UserRanking[]>([]);
   const [stats, setStats] = useState<GlobalStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,6 +46,7 @@ export default function Leaderboard() {
   const [famousPeople, setFamousPeople] = useState<FamousPerson[]>([]);
   const [filteredFamousPeople, setFilteredFamousPeople] = useState<FamousPerson[]>([]);
   const [activeTab, setActiveTab] = useState<'users' | 'famous'>('users');
+  const [anonymized, setAnonymized] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [famousPage, setFamousPage] = useState(1);
@@ -64,12 +66,19 @@ export default function Leaderboard() {
     }
   }, []);
 
+  // Open Famous People tab when ?tab=famous (e.g. after rating a famous person)
+  useEffect(() => {
+    if (searchParams.get('tab') === 'famous') {
+      setActiveTab('famous');
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     if (loading) return;
     loadLeaderboardData();
     loadFamousPeople();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once when auth state is known
-  }, [loading]);
+  }, [loading, user]);
 
   useEffect(() => {
     famousPeopleRef.current = famousPeople;
@@ -219,80 +228,43 @@ export default function Leaderboard() {
   const loadLeaderboardData = async () => {
     try {
       setIsLoading(true);
-      const [rankingsData, statsData] = await Promise.all([
-        getGlobalRankings(),
-        getGlobalStats()
-      ]);
-      
+      setError(null);
+      const { rankings: rankingsData, stats: statsData, anonymized: isAnonymized } = await getLeaderboardData(
+        user ? () => user.getIdToken() : () => Promise.resolve(undefined)
+      );
+
       setRankings(rankingsData);
       setFilteredRankings(rankingsData);
       setStats(statsData);
-      
-      // Find current user's rank
+      setAnonymized(!!isAnonymized);
+
       if (user) {
-        const userRank = rankingsData.findIndex(ranking => ranking.userId === user.uid);
+        const userRank = rankingsData.findIndex((r) => r.userId === user.uid);
         setCurrentUserRank(userRank >= 0 ? userRank + 1 : null);
+      } else {
+        setCurrentUserRank(null);
       }
     } catch (err) {
       console.error('Error loading leaderboard data:', err);
-      setError('Failed to load leaderboard data');
+      setError(err instanceof Error ? err.message : 'Failed to load leaderboard data');
     } finally {
       setIsLoading(false);
     }
   };
 
   const getAuraLevel = (totalAura: number) => {
-    if (totalAura >= 10_000_000) return { level: 'Celestial', color: 'text-amber-200 dark:text-amber-300', gradient: 'from-amber-400 via-yellow-300 to-amber-500', glow: 'shadow-amber-500/30', ring: 'ring-amber-400/60', border: 'border-amber-400', borderAccent: 'border-amber-400/60' };
-    if (totalAura >= 5_000_000) return { level: 'Mythic', color: 'text-purple-600 dark:text-purple-400', gradient: 'from-purple-500 via-fuchsia-500 to-purple-600', glow: 'shadow-purple-500/25', ring: 'ring-purple-400/60', border: 'border-purple-400', borderAccent: 'border-purple-400/60' };
-    if (totalAura >= 2_500_000) return { level: 'Legendary', color: 'text-violet-600 dark:text-violet-400', gradient: 'from-violet-500 via-purple-500 to-indigo-600', glow: 'shadow-violet-500/25', ring: 'ring-violet-400/60', border: 'border-violet-400', borderAccent: 'border-violet-400/60' };
-    if (totalAura >= 1_000_000) return { level: 'Dazzling', color: 'text-indigo-600 dark:text-indigo-400', gradient: 'from-indigo-500 to-blue-600', glow: 'shadow-indigo-500/20', ring: 'ring-indigo-400/60', border: 'border-indigo-400', borderAccent: 'border-indigo-400/60' };
-    if (totalAura >= 500_000) return { level: 'Brilliant', color: 'text-blue-600 dark:text-blue-400', gradient: 'from-blue-500 to-cyan-500', glow: 'shadow-blue-500/20', ring: 'ring-blue-400/60', border: 'border-blue-400', borderAccent: 'border-blue-400/60' };
-    if (totalAura >= 250_000) return { level: 'Luminous', color: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-500 to-teal-500', glow: 'shadow-cyan-500/20', ring: 'ring-cyan-400/60', border: 'border-cyan-400', borderAccent: 'border-cyan-400/60' };
-    if (totalAura >= 100_000) return { level: 'Radiant', color: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-500 to-emerald-500', glow: 'shadow-teal-500/20', ring: 'ring-teal-400/60', border: 'border-teal-400', borderAccent: 'border-teal-400/60' };
-    if (totalAura >= 10_000) return { level: 'Shimmer', color: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-500 to-green-500', glow: 'shadow-emerald-500/15', ring: 'ring-emerald-400/60', border: 'border-emerald-400', borderAccent: 'border-emerald-400/60' };
-    if (totalAura >= 1_000) return { level: 'Glow', color: 'text-green-600 dark:text-green-400', gradient: 'from-green-500 to-lime-500', glow: 'shadow-green-500/15', ring: 'ring-green-400/60', border: 'border-green-400', borderAccent: 'border-green-400/60' };
-    if (totalAura >= 100) return { level: 'Spark', color: 'text-lime-600 dark:text-lime-400', gradient: 'from-lime-500 to-yellow-500', glow: 'shadow-lime-500/10', ring: 'ring-lime-400/50', border: 'border-lime-400', borderAccent: 'border-lime-400/60' };
-    return { level: 'Kindling', color: 'text-gray-500 dark:text-gray-400', gradient: 'from-gray-400 to-gray-500', glow: '', ring: 'ring-gray-400/40', border: 'border-gray-300 dark:border-gray-600', borderAccent: 'border-gray-400/60' };
+    if (totalAura >= 1_000_000) return { level: 'Elite', color: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/60' };
+    if (totalAura >= 100_000) return { level: 'High', color: 'text-amber-600 dark:text-amber-500', border: 'border-amber-500/50' };
+    if (totalAura >= 10_000) return { level: 'Rising', color: 'text-gray-700 dark:text-gray-300', border: 'border-gray-400 dark:border-gray-600' };
+    if (totalAura >= 1_000) return { level: 'Building', color: 'text-gray-600 dark:text-gray-400', border: 'border-gray-300 dark:border-gray-600' };
+    return { level: 'New', color: 'text-gray-500 dark:text-gray-500', border: 'border-gray-300 dark:border-gray-700' };
   };
 
-  const getRankBadge = (rank: number) => {
-    if (rank === 1) {
-      return (
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 text-amber-950 shadow-md shadow-amber-500/25 ring-2 ring-amber-400/50 dark:ring-amber-500/30">
-          1st
-        </div>
-      );
-    }
-    if (rank === 2) {
-      return (
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br from-slate-300 via-slate-400 to-slate-500 text-slate-900 shadow-md shadow-slate-400/25 ring-2 ring-slate-300/50 dark:ring-slate-500/30">
-          2nd
-        </div>
-      );
-    }
-    if (rank === 3) {
-      return (
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-amber-100 shadow-md shadow-amber-700/25 ring-2 ring-amber-600/50 dark:ring-amber-600/30">
-          3rd
-        </div>
-      );
-    }
-    return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-semibold text-sm bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 ring-1 ring-gray-200 dark:ring-gray-700">
-        {rank}
-      </div>
-    );
-  };
-
-  const handleSignOut = async () => {
-    try {
-      // Assuming signOut is available from useAuth
-      // You might need to add this to your useAuth hook
-      router.push('/');
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
+  const getRankBadge = (rank: number) => (
+    <div className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-sm tabular-nums bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 ring-1 ring-gray-200 dark:ring-gray-700">
+      {rank}
+    </div>
+  );
 
   if (loading || isLoading) {
     return (
@@ -304,34 +276,22 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">
-      <Nav 
-        showBack 
-        backHref={user ? '/dashboard' : '/'} 
-        showAuth={!user}
-        rightContent={user ? (
-          <button
-            onClick={handleSignOut}
-            className="px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:text-red-700"
-          >
-            Sign out
-          </button>
-        ) : undefined}
-      />
+      <Nav showBack backHref={user ? '/dashboard' : '/'} showAuth={!user} />
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-2xl mx-auto px-5 py-10">
         {!user && (
-          <div className="mb-6 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-center">
-            <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">Create groups, get rated by friends, and climb the rankings.</p>
-            <Link href="/signup" className="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+          <div className="mb-6 p-4 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 text-center">
+            <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">Create groups, get rated by friends, and climb the rankings.</p>
+            <Link href="/signup" className="inline-block px-5 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[13px] font-medium rounded-xl hover:opacity-90">
               Get started free
             </Link>
           </div>
         )}
-        <div className="text-center text-gray-900 dark:text-gray-100 mb-8">
-          <h1 className="text-2xl font-bold mb-2">Top auras</h1>
-          <p className="text-gray-600 dark:text-gray-400">Highest aura scores worldwide</p>
+        <header className="text-center mb-10">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Top auras</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Highest aura scores worldwide</p>
           {user && currentUserRank && (
-            <div className="mt-4 p-4 border border-gray-200 dark:border-gray-700 rounded-md inline-block bg-gray-50 dark:bg-gray-900">
+            <div className="mt-4 p-4 border border-gray-200 dark:border-gray-700 rounded-xl inline-block bg-gray-50 dark:bg-gray-900">
               <span className="text-gray-900 dark:text-gray-100 font-medium text-sm">
                 {userSearchQuery && currentUserRank > 20 
                   ? `Your Rank: #${currentUserRank} (not in top 20)`
@@ -340,7 +300,7 @@ export default function Leaderboard() {
               </span>
             </div>
           )}
-        </div>
+        </header>
 
         {error && (
           <p className="mb-6 text-red-600 dark:text-red-400 text-sm">{error}</p>
@@ -349,26 +309,30 @@ export default function Leaderboard() {
         {/* Stats Cards */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-12">
-            <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 text-center text-gray-900 dark:text-gray-100">
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{stats.highestAura.toLocaleString()}</div>
+            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                {stats.highestAura != null ? stats.highestAura.toLocaleString() : '—'}
+              </div>
               <div className="text-gray-500 dark:text-gray-400 text-xs">Highest Score</div>
             </div>
-            <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 text-center text-gray-900 dark:text-gray-100">
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{stats.averageAura.toLocaleString()}</div>
+            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                {stats.averageAura != null ? stats.averageAura.toLocaleString() : '—'}
+              </div>
               <div className="text-gray-500 dark:text-gray-400 text-xs">Average Score</div>
             </div>
-            <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 text-center text-gray-900 dark:text-gray-100">
+            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
               <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{stats.totalUsers.toLocaleString()}</div>
               <div className="text-gray-500 dark:text-gray-400 text-xs">Active Users</div>
             </div>
-            <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4 text-center text-gray-900 dark:text-gray-100">
+            <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-center text-gray-900 dark:text-gray-100">
               <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{stats.totalRatings.toLocaleString()}</div>
               <div className="text-gray-500 dark:text-gray-400 text-xs">Total Ratings</div>
             </div>
           </div>
         )}
 
-        <div className="border border-gray-200 dark:border-gray-800 rounded-md overflow-hidden">
+        <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">Global Rankings</h2>
@@ -399,8 +363,8 @@ export default function Leaderboard() {
 
           {activeTab === 'users' ? (
           <>
-              {/* Search Bar for Users */}
-              <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 dark:border-gray-800">
+              {/* Search Bar for Users - hidden when anonymized (all names are Anonymous) */}
+              <div className={`px-4 sm:px-8 py-4 sm:py-6 border-b border-gray-200 dark:border-gray-800 ${anonymized ? 'hidden' : ''}`}>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -409,7 +373,7 @@ export default function Leaderboard() {
                   </div>
                   <input
                     type="text"
-                    placeholder={user ? "Search users by name..." : "Log in to search"}
+                    placeholder={user ? "Search users by name..." : "Sign in to search"}
                     value={userSearchQuery}
                     onChange={(e) => user && setUserSearchQuery(e.target.value)}
                     disabled={!user}
@@ -446,43 +410,99 @@ export default function Leaderboard() {
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Rankings Yet</h3>
                   <p className="text-gray-600 dark:text-gray-400 mb-6">Be the first to join and start building your aura!</p>
-                  <Link href="/signup" className="inline-block px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-lg hover:opacity-90 transition-opacity">
+                  <Link href="/signup" className="inline-block px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:opacity-90 transition-opacity">
                     Join the Rankings
                   </Link>
                 </div>
               ) : (
                 <>
+                {/* Podium – top 3 (1st center, 2nd left, 3rd right) */}
+                {filteredRankings.length >= 3 && (() => {
+                  const [second, first, third] = [
+                    filteredRankings[1],
+                    filteredRankings[0],
+                    filteredRankings[2],
+                  ];
+                  const isUser1 = user && first.userId === user.uid;
+                  const isUser2 = user && second.userId === user.uid;
+                  const isUser3 = user && third.userId === user.uid;
+                  const podiumHref = (r: UserRanking, isYou: boolean) => {
+                    if (anonymized) return null;
+                    if (isYou) return `/profile/${r.userId}`;
+                    return user ? `/rate-user/${r.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${r.userId}`)}`;
+                  };
+                  const PodiumSlot = ({ r, isYou, rank, bg, bgFoot }: { r: UserRanking; isYou: boolean; rank: number; bg: string; bgFoot: string }) => {
+                    const href = podiumHref(r, isYou);
+                    const h = rank === 1 ? 'h-20 sm:h-24' : rank === 2 ? 'h-14 sm:h-16' : 'h-10 sm:h-12';
+                    const slotClass = 'flex flex-col items-center flex-1 max-w-[90px] sm:max-w-[110px]';
+                    const content = (
+                      <>
+                        <div className={`w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center text-white font-semibold text-lg rounded-full mb-2 ${rank === 1 ? 'sm:w-16 sm:h-16 sm:text-xl' : ''} ${bg}`}>
+                          {r.displayName.charAt(0).toUpperCase() || '?'}
+                        </div>
+                        <div className="text-center mb-2 min-w-0 px-1">
+                          <div className="text-[13px] text-gray-900 dark:text-gray-100 truncate max-w-full" title={r.displayName}>{r.displayName}</div>
+                          {isYou && <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">You</span>}
+                          <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>{r.totalAura?.toLocaleString() ?? '—'}</div>
+                        </div>
+                        <div className={`w-full ${bg} ${h} rounded-t`} />
+                        <div className={`w-full h-5 ${bgFoot} rounded-b flex items-center justify-center`}>
+                          <span className="font-mono text-xs text-white/90">{rank}</span>
+                        </div>
+                      </>
+                    );
+                    if (href) {
+                      return (
+                        <Link href={href} className={`${slotClass} cursor-pointer hover:opacity-90 transition-opacity rounded-lg`}>
+                          {content}
+                        </Link>
+                      );
+                    }
+                    return <div className={slotClass}>{content}</div>;
+                  };
+                  return (
+                    <div className="py-8 px-4 border-b border-gray-200 dark:border-gray-800">
+                      <div className="flex items-end justify-center gap-1 sm:gap-3 max-w-sm mx-auto">
+                        <PodiumSlot r={second} isYou={!!isUser2} rank={2} bg="bg-gray-500 dark:bg-gray-600" bgFoot="bg-gray-600 dark:bg-gray-700" />
+                        <PodiumSlot r={first} isYou={!!isUser1} rank={1} bg="bg-amber-500 dark:bg-amber-600" bgFoot="bg-amber-600 dark:bg-amber-700" />
+                        <PodiumSlot r={third} isYou={!!isUser3} rank={3} bg="bg-amber-700 dark:bg-amber-800" bgFoot="bg-amber-800 dark:bg-amber-900" />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* List: ranks 4+ (or all if &lt; 3) */}
                 <div className="overflow-x-auto">
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {(() => {
+                      const listStart = filteredRankings.length >= 3 ? 3 : 0;
                       const start = (currentPage - 1) * RANKINGS_PER_PAGE;
-                      const paginatedRankings = filteredRankings.slice(start, start + RANKINGS_PER_PAGE);
+                      const paginatedRankings = filteredRankings.slice(listStart).slice(start, start + RANKINGS_PER_PAGE);
                       return paginatedRankings.map((userRanking) => {
                       const actualRank = rankings.findIndex(ranking => ranking.userId === userRanking.userId) + 1;
                       if (actualRank === 0) console.warn(`User ${userRanking.displayName} not found in global rankings`);
-                      const auraLevel = getAuraLevel(userRanking.totalAura);
+                      const auraLevel = getAuraLevel(userRanking.totalAura ?? 0);
                       const isCurrentUser = user && userRanking.userId === user.uid;
-                      const isTop15 = actualRank >= 1 && actualRank <= 15;
-                      const isPodium = actualRank <= 3;
 
-                      const rowContent = (
-                        <div className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors ${
-                          isCurrentUser ? 'bg-blue-500/5 dark:bg-blue-500/10' : ''
-                        }`}>
+                      return (
+                        <div
+                          key={userRanking.userId}
+                          className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors ${
+                            isCurrentUser ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''
+                          }`}
+                        >
                           <div className="w-10 shrink-0">{getRankBadge(actualRank)}</div>
                           <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-                            <div className={`shrink-0 flex items-center justify-center text-white font-semibold text-sm overflow-hidden rounded-full ${
-                              isTop15 ? `w-12 h-12 sm:w-14 sm:h-14 ring-2 ring-offset-2 dark:ring-offset-gray-950 ${auraLevel.ring} shadow-lg ${auraLevel.glow} bg-gradient-to-br ${auraLevel.gradient}` : `w-10 h-10 bg-gradient-to-br ${auraLevel.gradient}`
-                            }`}>
-                              {userRanking.displayName.charAt(0).toUpperCase()}
+                            <div className="shrink-0 w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-200 font-semibold text-sm rounded-full bg-gray-200 dark:bg-gray-700 ring-1 ring-gray-300 dark:ring-gray-600">
+                              {userRanking.displayName.charAt(0).toUpperCase() || '?'}
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-gray-900 dark:text-gray-100 font-medium text-sm truncate">{userRanking.displayName}</span>
                                 {isCurrentUser && (
-                                  <span className="text-[10px] uppercase tracking-wider text-blue-600 dark:text-blue-400 font-medium opacity-90">You</span>
+                                  <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-medium">You</span>
                                 )}
-                                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${auraLevel.border} ${auraLevel.color} bg-white/50 dark:bg-black/20 backdrop-blur-sm`}>
+                                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${auraLevel.border} ${auraLevel.color}`}>
                                   {auraLevel.level}
                                 </span>
                               </div>
@@ -493,54 +513,29 @@ export default function Leaderboard() {
                               </div>
                             </div>
                           </div>
-                          <div className="text-gray-900 dark:text-gray-100 font-bold text-lg tabular-nums">{userRanking.totalAura.toLocaleString()}</div>
+                          <div className="text-gray-900 dark:text-gray-100 font-mono font-semibold text-lg tabular-nums">
+                            {userRanking.totalAura != null ? userRanking.totalAura.toLocaleString() : '—'}
+                          </div>
                           <div className="flex items-center gap-2">
-                            <Link
-                              href={`/profile/${userRanking.userId}`}
-                              className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors py-1.5"
-                            >
-                              Profile
-                            </Link>
-                            {userRanking.userId !== user?.uid && (
-                              <Link
-                                href={user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`}
-                                className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors py-1.5 px-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
-                              >
-                                Rate
-                              </Link>
+                            {!anonymized && (
+                              <>
+                                <Link
+                                  href={`/profile/${userRanking.userId}`}
+                                  className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors py-1.5"
+                                >
+                                  Profile
+                                </Link>
+                                {userRanking.userId !== user?.uid && (
+                                  <Link
+                                    href={user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`}
+                                    className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors py-1.5 px-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
+                                  >
+                                    Rate
+                                  </Link>
+                                )}
+                              </>
                             )}
                           </div>
-                        </div>
-                      );
-
-                      if (isTop15) {
-                        return (
-                          <div
-                            key={userRanking.userId}
-                            className={`relative overflow-hidden ${
-                              isPodium
-                                ? 'bg-gradient-to-r from-amber-500/5 via-transparent to-amber-500/5 dark:from-amber-500/10 dark:via-transparent dark:to-amber-500/10'
-                                : 'bg-gradient-to-r from-gray-500/5 via-transparent to-gray-500/5 dark:from-gray-500/10 dark:via-transparent dark:to-gray-500/10'
-                            }`}
-                          >
-                            {isPodium && (
-                              <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(251,191,36,0.03)_50%,transparent_100%)] dark:bg-[linear-gradient(90deg,transparent_0%,rgba(251,191,36,0.06)_50%,transparent_100%)]" />
-                            )}
-                            <div className={`relative border-l-2 sm:border-l-4 ${
-                              actualRank === 1 ? 'border-amber-400' :
-                              actualRank === 2 ? 'border-slate-400' :
-                              actualRank === 3 ? 'border-amber-600' :
-                              auraLevel.borderAccent
-                            }`}>
-                              {rowContent}
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div key={userRanking.userId}>
-                          {rowContent}
                         </div>
                       );
                     });
@@ -549,27 +544,33 @@ export default function Leaderboard() {
                 </div>
 
                 {/* Pagination */}
-                {filteredRankings.length > RANKINGS_PER_PAGE && (
-                  <div className="flex items-center justify-center gap-2 sm:gap-4 py-6 px-4 border-t border-gray-200 dark:border-gray-800">
-                    <button
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage <= 1}
-                      className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Previous
-                    </button>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      Page {currentPage} of {Math.ceil(filteredRankings.length / RANKINGS_PER_PAGE)}
-                    </span>
-                    <button
-                      onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredRankings.length / RANKINGS_PER_PAGE), p + 1))}
-                      disabled={currentPage >= Math.ceil(filteredRankings.length / RANKINGS_PER_PAGE)}
-                      className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-                  </div>
-                )}
+                {(() => {
+                  const listStart = filteredRankings.length >= 3 ? 3 : 0;
+                  const listCount = filteredRankings.length - listStart;
+                  if (listCount <= RANKINGS_PER_PAGE) return null;
+                  const totalPages = Math.ceil(listCount / RANKINGS_PER_PAGE);
+                  return (
+                    <div className="flex items-center justify-center gap-2 sm:gap-4 py-6 px-4 border-t border-gray-200 dark:border-gray-800">
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  );
+                })()}
                 </>
               )}
           </>
@@ -640,64 +641,113 @@ export default function Leaderboard() {
                 </div>
               ) : (
                 <>
-                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {(() => {
-                      const start = (famousPage - 1) * RANKINGS_PER_PAGE;
-                      const paginated = filteredFamousPeople.slice(start, start + RANKINGS_PER_PAGE);
-                      return paginated.map((fp) => {
-                        const actualRank = fp.isUnrated ? -1 : (famousPeople.findIndex(f => f.id === fp.id) + 1);
-                        const auraLevel = getAuraLevel(fp.totalAura);
-                        const isTop15 = actualRank >= 1 && actualRank <= 15;
-                        const isPodium = actualRank <= 3;
-                        const row = (
-                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30">
-                            <div className="w-10 shrink-0">
-                              {actualRank === -1 ? (
-                                <div className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 text-xs font-medium">NR</div>
-                              ) : (
-                                getRankBadge(actualRank)
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <div className={`shrink-0 w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold text-sm rounded-full bg-gradient-to-br ${auraLevel.gradient}`}>
-                                {fp.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <span className="text-gray-900 dark:text-gray-100 font-medium text-sm">{fp.name}</span>
-                                <span className={`ml-2 text-[11px] font-medium px-2 py-0.5 rounded-md border ${auraLevel.border} ${auraLevel.color}`}>{auraLevel.level}</span>
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{fp.ratingsReceived} ratings</div>
-                              </div>
-                            </div>
-                            <div className="text-gray-900 dark:text-gray-100 font-bold text-lg tabular-nums">{fp.totalAura.toLocaleString()}</div>
-                            <Link href={user ? `/rate-famous/${fp.id}` : `/login?redirect=${encodeURIComponent(`/rate-famous/${fp.id}`)}`} className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-2 py-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
-                              Rate
-                            </Link>
+                  {/* Podium – top 3 famous people */}
+                  {(() => {
+                    const top3Ranked = filteredFamousPeople.filter(f => !f.isUnrated).slice(0, 3);
+                    if (top3Ranked.length < 3) return null;
+                    const [second, first, third] = [top3Ranked[1], top3Ranked[0], top3Ranked[2]];
+                    const FamousPodiumSlot = ({ fp, rank, bg, bgFoot }: { fp: FamousPerson; rank: number; bg: string; bgFoot: string }) => {
+                      const href = user ? `/rate-famous/${fp.id}` : `/login?redirect=${encodeURIComponent(`/rate-famous/${fp.id}`)}`;
+                      const h = rank === 1 ? 'h-20 sm:h-24' : rank === 2 ? 'h-14 sm:h-16' : 'h-10 sm:h-12';
+                      const slotClass = 'flex flex-col items-center flex-1 max-w-[90px] sm:max-w-[110px] cursor-pointer hover:opacity-90 transition-opacity rounded-lg';
+                      const content = (
+                        <>
+                          <div className={`w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center overflow-hidden rounded-full mb-2 ${rank === 1 ? 'sm:w-16 sm:h-16' : ''} ${bg}`}>
+                            {fp.imageUrl ? (
+                              <Image src={fp.imageUrl} alt={fp.name} width={56} height={56} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-white font-semibold text-lg">{fp.name.charAt(0).toUpperCase()}</span>
+                            )}
                           </div>
-                        );
-                        if (isTop15 && actualRank > 0) {
-                          return (
-                            <div key={fp.id} className={`relative ${isPodium ? 'bg-gradient-to-r from-amber-500/5 via-transparent to-amber-500/5' : 'bg-gradient-to-r from-gray-500/5 via-transparent to-gray-500/5'}`}>
-                              <div className={`border-l-2 sm:border-l-4 ${actualRank === 1 ? 'border-amber-400' : actualRank === 2 ? 'border-slate-400' : actualRank === 3 ? 'border-amber-600' : auraLevel.borderAccent}`}>
-                                {row}
+                          <div className="text-center mb-2 min-w-0 px-1">
+                            <div className="text-[13px] text-gray-900 dark:text-gray-100 truncate max-w-full" title={fp.name}>{fp.name}</div>
+                            <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>{fp.totalAura.toLocaleString()}</div>
+                          </div>
+                          <div className={`w-full ${bg} ${h} rounded-t`} />
+                          <div className={`w-full h-5 ${bgFoot} rounded-b flex items-center justify-center`}>
+                            <span className="font-mono text-xs text-white/90">{rank}</span>
+                          </div>
+                        </>
+                      );
+                      return (
+                        <Link key={fp.id} href={href} className={slotClass}>
+                          {content}
+                        </Link>
+                      );
+                    };
+                    return (
+                      <div className="py-8 px-4 border-b border-gray-200 dark:border-gray-800">
+                        <div className="flex items-end justify-center gap-1 sm:gap-3 max-w-sm mx-auto">
+                          <FamousPodiumSlot fp={second} rank={2} bg="bg-gray-500 dark:bg-gray-600" bgFoot="bg-gray-600 dark:bg-gray-700" />
+                          <FamousPodiumSlot fp={first} rank={1} bg="bg-amber-500 dark:bg-amber-600" bgFoot="bg-amber-600 dark:bg-amber-700" />
+                          <FamousPodiumSlot fp={third} rank={3} bg="bg-amber-700 dark:bg-amber-800" bgFoot="bg-amber-800 dark:bg-amber-900" />
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* List: famous people rank 4+ (or all if &lt; 3 ranked) */}
+                  {(() => {
+                    const top3Ranked = filteredFamousPeople.filter(f => !f.isUnrated).slice(0, 3);
+                    const listStart = top3Ranked.length >= 3 ? 3 : 0;
+                    const listPeople = listStart > 0
+                      ? filteredFamousPeople.filter(f => !top3Ranked.some(t => t.id === f.id))
+                      : filteredFamousPeople;
+                    const start = (famousPage - 1) * RANKINGS_PER_PAGE;
+                    const paginated = listPeople.slice(start, start + RANKINGS_PER_PAGE);
+                    const totalListPages = Math.ceil(listPeople.length / RANKINGS_PER_PAGE);
+
+                    return (
+                      <>
+                        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                          {paginated.map((fp) => {
+                            const actualRank = fp.isUnrated ? -1 : (famousPeople.findIndex(f => f.id === fp.id) + 1);
+                            const auraLevel = getAuraLevel(fp.totalAura);
+                            return (
+                              <div key={fp.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30">
+                                <div className="w-10 shrink-0">
+                                  {actualRank === -1 ? (
+                                    <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 text-xs font-mono">NR</div>
+                                  ) : (
+                                    getRankBadge(actualRank)
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  <div className="shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden flex items-center justify-center bg-gray-300 dark:bg-gray-600 ring-1 ring-gray-200 dark:ring-gray-600">
+                                    {fp.imageUrl ? (
+                                      <Image src={fp.imageUrl} alt={fp.name} width={48} height={48} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{fp.name.charAt(0).toUpperCase()}</span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-900 dark:text-gray-100 font-medium text-sm">{fp.name}</span>
+                                    <span className={`ml-2 text-[11px] font-medium px-2 py-0.5 rounded-md border ${auraLevel.border} ${auraLevel.color}`}>{auraLevel.level}</span>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{fp.ratingsReceived} ratings</div>
+                                  </div>
+                                </div>
+                                <div className="text-gray-900 dark:text-gray-100 font-mono font-semibold text-lg tabular-nums">{fp.totalAura.toLocaleString()}</div>
+                                <Link href={user ? `/rate-famous/${fp.id}` : `/login?redirect=${encodeURIComponent(`/rate-famous/${fp.id}`)}`} className="text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-2 py-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">
+                                  Rate
+                                </Link>
                               </div>
-                            </div>
-                          );
-                        }
-                        return <div key={fp.id}>{row}</div>;
-                      });
-                    })()}
-                  </div>
-                  {filteredFamousPeople.length > RANKINGS_PER_PAGE && (
-                    <div className="flex items-center justify-center gap-2 sm:gap-4 py-6 px-4 border-t border-gray-200 dark:border-gray-800">
-                      <button onClick={() => setFamousPage(p => Math.max(1, p - 1))} disabled={famousPage <= 1} className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                        Previous
-                      </button>
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Page {famousPage} of {Math.ceil(filteredFamousPeople.length / RANKINGS_PER_PAGE)}</span>
-                      <button onClick={() => setFamousPage(p => Math.min(Math.ceil(filteredFamousPeople.length / RANKINGS_PER_PAGE), p + 1))} disabled={famousPage >= Math.ceil(filteredFamousPeople.length / RANKINGS_PER_PAGE)} className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                        Next
-                      </button>
-                    </div>
-                  )}
+                            );
+                          })}
+                        </div>
+                        {totalListPages > 1 && (
+                          <div className="flex items-center justify-center gap-2 sm:gap-4 py-6 px-4 border-t border-gray-200 dark:border-gray-800">
+                            <button onClick={() => setFamousPage(p => Math.max(1, p - 1))} disabled={famousPage <= 1} className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                              Previous
+                            </button>
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Page {famousPage} of {totalListPages}</span>
+                            <button onClick={() => setFamousPage(p => Math.min(totalListPages, p + 1))} disabled={famousPage >= totalListPages} className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                              Next
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -738,7 +788,7 @@ export default function Leaderboard() {
           </div>
           {!user && (
             <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 text-center">
-              <Link href="/signup" className="inline-block px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium rounded-md hover:opacity-90">
+              <Link href="/signup" className="inline-block px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium rounded-xl hover:opacity-90">
                 Join and climb the rankings
               </Link>
             </div>

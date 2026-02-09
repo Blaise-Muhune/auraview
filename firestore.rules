@@ -9,12 +9,7 @@ service cloud.firestore {
       allow update, delete: if request.auth != null && request.auth.uid == resource.data.fromUserId;
     }
 
-    // Allow authenticated users to read and write to all collections
-    match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Specific rules for groups collection (public read for leaderboard)
+    // Groups: public read, write only by creator/participants
     match /groups/{groupId} {
       allow read: if true;
       allow create: if request.auth != null && 
@@ -26,11 +21,10 @@ service cloud.firestore {
         request.auth.uid == resource.data.createdBy;
     }
     
-    // Specific rules for users collection (public profiles for shareable links)
+    // Users: only owner can read full profile (includes email); authenticated users can read for leaderboard/profile display
     match /users/{userId} {
-      allow read: if true;  // Public profiles so people can view/share
-      allow write: if request.auth != null && 
-        request.auth.uid == userId;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
     
     // userProfiles (if used - e.g. by getUserProfilesByIds)
@@ -39,13 +33,10 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
     
-    // Specific rules for ratings collection (public read for leaderboard)
+    // Ratings: public read; create/update/delete via API only (server validates)
     match /ratings/{ratingId} {
       allow read: if true;
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.fromUserId;
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.fromUserId;
+      allow create, update, delete: if false;
     }
   }
 }

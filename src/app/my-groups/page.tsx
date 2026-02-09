@@ -152,52 +152,23 @@ export default function MyGroupsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 relative overflow-hidden">
-      {/* Ambient gradient */}
-      <div 
-        className="fixed inset-0 pointer-events-none"
-        style={{
-          background: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.06) 0%, transparent 50%)',
-        }}
-      />
-      <div 
-        className="fixed inset-0 pointer-events-none dark:block hidden"
-        style={{
-          background: 'radial-gradient(ellipse 60% 40% at 50% -10%, rgba(59, 130, 246, 0.05) 0%, transparent 45%)',
-        }}
-      />
+    <div className="min-h-screen bg-white dark:bg-gray-950">
+      <Nav showBack backHref="/dashboard" />
 
-      <Nav 
-        showBack 
-        backHref="/dashboard" 
-        rightContent={
-          <Link href="/leaderboard" className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">
-            Leaderboard
-          </Link>
-        }
-      />
-
-      <main className="relative max-w-2xl mx-auto px-4 py-10">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">My Groups</h1>
-            <p className="text-gray-500 dark:text-gray-400 text-xs">{groups.length} {groups.length === 1 ? 'group' : 'groups'}</p>
-          </div>
-        </div>
+      <main className="max-w-xl mx-auto px-5 py-10">
+        <header className="mb-10">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">My Groups</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{groups.length} {groups.length === 1 ? 'group' : 'groups'}</p>
+        </header>
 
         {error && (
           <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>
         )}
 
         {groups.length === 0 ? (
-          <div className="relative overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-gradient-to-b from-blue-50/50 to-transparent dark:from-blue-950/20 dark:to-transparent p-10 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-              <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 p-10 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <svg className="w-8 h-8 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
               </svg>
             </div>
@@ -206,7 +177,7 @@ export default function MyGroupsPage() {
             <div className="flex gap-3 justify-center">
               <Link 
                 href="/create-group"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 dark:bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium text-[13px] hover:opacity-90 transition-colors"
                 title="Create group"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -216,7 +187,7 @@ export default function MyGroupsPage() {
               </Link>
               <Link 
                 href="/join-group"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-medium text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium text-[13px] hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 title="Join with code"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -235,15 +206,15 @@ export default function MyGroupsPage() {
               return (
                 <div 
                   key={group.id} 
-                  className="aura-card relative overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900/50 backdrop-blur-sm transition-all duration-300"
+                  className="aura-card relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/30 transition-all duration-300"
                   style={{ animationDelay: `${i * 60}ms` }}
                 >
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-400/50 via-blue-500/40 to-blue-400/50 dark:from-blue-500/40 dark:via-blue-600/30 dark:to-blue-500/40" />
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500" />
                   
                   <div className="flex items-start justify-between gap-4 p-4 pl-5">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-400 font-semibold text-sm shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-700 dark:text-amber-400 font-semibold text-sm shrink-0">
                           {initial}
                         </div>
                         <div>
@@ -256,21 +227,21 @@ export default function MyGroupsPage() {
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ml-[52px]">
                         <span className="font-mono">{visibleCodes[group.id!] ? group.code : '••••••'}</span>
-                        <button onClick={() => toggleCodeVisibility(group.id!)} className="p-1 hover:text-blue-600 dark:hover:text-blue-400 rounded" title={visibleCodes[group.id!] ? 'Hide code' : 'Show code'}>
+                        <button onClick={() => toggleCodeVisibility(group.id!)} className="p-1 hover:text-amber-600 dark:hover:text-amber-400 rounded" title={visibleCodes[group.id!] ? 'Hide code' : 'Show code'}>
                           {visibleCodes[group.id!] ? (
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
                           ) : (
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           )}
                         </button>
-                        <button onClick={() => copyGroupLink(group)} className="p-1 hover:text-blue-600 dark:hover:text-blue-400 rounded" title="Copy link">
+                        <button onClick={() => copyGroupLink(group)} className="p-1 hover:text-amber-600 dark:hover:text-amber-400 rounded" title="Copy link">
                           {copiedGroupId === group.id ? (
                             <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                           ) : (
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
                           )}
                         </button>
-                        <button onClick={() => shareGroupLink(group)} className="p-1 hover:text-blue-600 dark:hover:text-blue-400 rounded" title="Share invite link">
+                        <button onClick={() => shareGroupLink(group)} className="p-1 hover:text-amber-600 dark:hover:text-amber-400 rounded" title="Share invite link">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
                         </button>
                       </div>
@@ -290,7 +261,7 @@ export default function MyGroupsPage() {
                         {group.votingClosed || allRated ? (
                           <Link
                             href={`/group/${group.id}/results`}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 transition-colors"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium text-sm hover:opacity-90 transition-colors"
                             title="View results"
                           >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -303,7 +274,7 @@ export default function MyGroupsPage() {
                             {showRate && (
                               <Link
                                 href={`/group/${group.id}/rate`}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium text-sm hover:opacity-90 transition-colors"
                                 title="Rate members"
                               >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -315,7 +286,7 @@ export default function MyGroupsPage() {
                             <Link
                               href={`/group/${group.id}/results`}
                               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md font-medium text-sm transition-colors ${
-                                showRate ? 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50' : 'bg-blue-600 text-white hover:bg-blue-700'
+                                showRate ? 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-90'
                               }`}
                               title="View results"
                             >
@@ -369,7 +340,7 @@ export default function MyGroupsPage() {
           <div className="mt-8 flex gap-2 justify-center">
             <Link 
               href="/create-group"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 text-sm hover:border-blue-400/50 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-[13px] hover:border-amber-400/50 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
               title="Create group"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -379,7 +350,7 @@ export default function MyGroupsPage() {
             </Link>
             <Link 
               href="/join-group"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 text-sm hover:border-blue-400/50 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-[13px] hover:border-amber-400/50 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
               title="Join with code"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

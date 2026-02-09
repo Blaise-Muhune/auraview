@@ -10,7 +10,8 @@ import {
   orderBy, 
   serverTimestamp,
   Timestamp,
-  setDoc
+  setDoc,
+  documentId
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { User } from 'firebase/auth';
@@ -52,6 +53,8 @@ export interface UserProfile {
     github?: string;
     website?: string;
     other?: string;
+    /** Up to 3 social links (Instagram, X/Twitter, LinkedIn, GitHub) */
+    socialLinks?: string[];
   };
   auraSources?: {
     description?: string;
@@ -59,6 +62,16 @@ export interface UserProfile {
     achievements?: string[];
     testimonials?: string[];
   };
+  /** Email notifications (default true) */
+  emailNotifications?: boolean;
+  /** Whether to show on global leaderboard (undefined = not asked yet) */
+  showOnLeaderboard?: boolean;
+  /** When on global leaderboard, show as anonymous (only applies if showOnLeaderboard is true) */
+  leaderboardAnonymous?: boolean;
+  /** Whether to show on group results/leaderboard (undefined = not asked yet) */
+  showOnGroupLeaderboard?: boolean;
+  /** When on group leaderboard, show as anonymous (only applies if showOnGroupLeaderboard is true) */
+  groupLeaderboardAnonymous?: boolean;
 }
 
 export interface Rating {
@@ -279,7 +292,8 @@ export const createUserProfile = async (user: User): Promise<void> => {
     totalAura: 500,
     pointsToGive: 10000,
     createdAt: serverTimestamp() as Timestamp,
-    groupsJoined: []
+    groupsJoined: [],
+    emailNotifications: true
   };
 
   console.log('Saving user profile with data:', userData);
@@ -416,31 +430,33 @@ export const refreshUserProfile = async (user: User): Promise<void> => {
   }
 };
 
-// Submit a rating
+// Submit a rating via API (server-side validation)
 export const submitRating = async (
   groupId: string,
   user: User,
   toUserId: string,
   toUserDisplayName: string,
   points: number,
-  reason?: string
+  reason?: string,
+  token?: string
 ): Promise<void> => {
-  const ratingData: Partial<Omit<Rating, 'id'>> = {
-    groupId,
-    fromUserId: user.uid,
-    fromUserDisplayName: user.displayName || 'Anonymous',
-    toUserId,
-    toUserDisplayName,
-    points,
-    createdAt: serverTimestamp() as Timestamp
-  };
-
-  // Only include reason if it's not empty
-  if (reason && reason.trim()) {
-    ratingData.reason = reason.trim();
+  const idToken = token ?? (await user.getIdToken());
+  const res = await fetch('/api/ratings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken,
+      groupId,
+      toUserId,
+      toUserDisplayName,
+      points,
+      reason: reason?.trim() || undefined,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || `Failed to submit rating (${res.status})`);
   }
-
-  await addDoc(collection(db, 'ratings'), ratingData);
 };
 
 // Get participant IDs the current user has already rated in a group (persisted)
@@ -503,6 +519,14 @@ export const checkUserPoints = async (userId: string, pointsToUse: number): Prom
   return remainingPoints >= Math.abs(pointsToUse);
 };
 
+// Get count of unique people who rated the user
+export const getUserRatersCount = async (userId: string): Promise<number> => {
+  const q = query(collection(db, 'ratings'), where('toUserId', '==', userId));
+  const querySnapshot = await getDocs(q);
+  const uniqueRaters = new Set(querySnapshot.docs.map(d => (d.data() as Rating).fromUserId));
+  return uniqueRaters.size;
+};
+
 // Get user's total distributed points (absolute value)
 export const getUserDistributedPoints = async (userId: string): Promise<number> => {
   const q = query(collection(db, 'ratings'), where('fromUserId', '==', userId));
@@ -515,7 +539,36 @@ export const getUserDistributedPoints = async (userId: string): Promise<number> 
   }, 0);
 };
 
-// Get global user rankings
+// Fetch leaderboard from server API (avoids full collection scans on client)
+// When signed in: full names and aura. When signed out: anonymized (names hidden, aura hidden, ratingsReceived shown).
+export const getLeaderboardData = async (getToken: () => Promise<string | undefined>): Promise<{
+  rankings: Array<{ userId: string; displayName: string; totalAura: number | null; groupsJoined: number; ratingsReceived: number }>;
+  stats: { totalUsers: number; totalRatings: number; averageAura: number | null; highestAura: number | null };
+  anonymized?: boolean;
+}> => {
+  const token = await getToken();
+
+  let res: Response;
+  if (token) {
+    res = await fetch('/api/leaderboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (res.status === 401) {
+      res = await fetch('/api/leaderboard', { headers: { Authorization: `Bearer ${token}` } });
+    }
+  } else {
+    res = await fetch('/api/leaderboard');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || 'Failed to load leaderboard data');
+  }
+  return res.json();
+};
+
+// Deprecated: use getLeaderboardData + API instead. Kept for reference; triggers heavy client reads.
 export const getGlobalRankings = async (): Promise<Array<{
   userId: string;
   displayName: string;
@@ -662,6 +715,16 @@ export const getGlobalStats = async (): Promise<{
   };
 }; 
 
+export const hasUserRatedFamousPerson = async (userId: string, famousPersonId: string): Promise<boolean> => {
+  const q = query(
+    collection(db, 'famousPersonRatings'),
+    where('famousPersonId', '==', famousPersonId),
+    where('fromUserId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+  return !snapshot.empty;
+};
+
 export const submitFamousPersonRating = async (
   user: User,
   famousPersonId: string,
@@ -669,6 +732,11 @@ export const submitFamousPersonRating = async (
   points: number,
   reason?: string
 ): Promise<void> => {
+  const alreadyRated = await hasUserRatedFamousPerson(user.uid, famousPersonId);
+  if (alreadyRated) {
+    throw new Error('You have already rated this person.');
+  }
+
   const ratingData: Partial<Omit<FamousPersonRating, 'id'>> = {
     fromUserId: user.uid,
     fromUserDisplayName: user.displayName || 'Anonymous',
@@ -765,34 +833,47 @@ export const getAllFamousPeopleStats = async (): Promise<{[key: string]: {
   return stats;
 };
 
-// Get multiple user profiles by their IDs
+// Get multiple user profiles by their IDs (reads from users collection)
 export const getUserProfilesByIds = async (userIds: string[]): Promise<UserProfile[]> => {
   if (userIds.length === 0) return [];
-  
+
   try {
     const profiles: UserProfile[] = [];
-    
-    // Get profiles in batches (Firestore has a limit of 10 for 'in' queries)
     const batchSize = 10;
+
     for (let i = 0; i < userIds.length; i += batchSize) {
       const batch = userIds.slice(i, i + batchSize);
       const q = query(
-        collection(db, 'userProfiles'),
-        where('id', 'in', batch)
+        collection(db, 'users'),
+        where(documentId(), 'in', batch)
       );
       const querySnapshot = await getDocs(q);
-      
-      querySnapshot.docs.forEach(doc => {
-        profiles.push(doc.data() as UserProfile);
+
+      querySnapshot.docs.forEach((d) => {
+        const data = d.data();
+        profiles.push({
+          id: d.id,
+          displayName: data.displayName ?? 'Anonymous User',
+          email: data.email ?? '',
+          photoURL: data.photoURL,
+          baseAura: data.baseAura ?? 500,
+          totalAura: data.totalAura ?? 500,
+          pointsToGive: data.pointsToGive ?? 10000,
+          createdAt: data.createdAt,
+          groupsJoined: data.groupsJoined ?? [],
+          socialHandles: data.socialHandles,
+          auraSources: data.auraSources,
+          emailNotifications: data.emailNotifications,
+        } as UserProfile);
       });
     }
-    
+
     return profiles;
   } catch (error) {
     console.error('Error fetching user profiles:', error);
     return [];
   }
-}; 
+};
 
 // Get user display name with fallback logic (extract from email if needed)
 export const getUserDisplayName = async (userId: string): Promise<string> => {

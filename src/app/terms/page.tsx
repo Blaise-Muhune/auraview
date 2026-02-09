@@ -10,7 +10,7 @@ export default function TermsPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-12">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-8">Terms of Service</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: {new Date().toLocaleDateString('en-US')}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: February 8, 2026</p>
 
         <div className="prose prose-sm dark:prose-invert max-w-none space-y-6 text-gray-700 dark:text-gray-300">
           <section>

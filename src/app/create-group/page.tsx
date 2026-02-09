@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { createGroupSession } from "@/lib/firestore";
+import { createGroupSession, ensureUserProfile } from "@/lib/firestore";
 
 export default function CreateGroup() {
   const { user, loading } = useAuth();
@@ -13,7 +13,8 @@ export default function CreateGroup() {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+  const [profileLoading, setProfileLoading] = useState(true);
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -28,6 +29,14 @@ export default function CreateGroup() {
       router.push('/login');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      await ensureUserProfile(user);
+      setProfileLoading(false);
+    })();
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +80,7 @@ export default function CreateGroup() {
     }));
   };
 
-  if (loading) {
+  if (loading || profileLoading) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
         <span className="text-gray-500 dark:text-gray-400">Loading...</span>
@@ -86,9 +95,12 @@ export default function CreateGroup() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">
       <Nav showBack backHref="/dashboard" />
-      <main className="max-w-md mx-auto px-4 py-8">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Create group</h1>
-        <div className="border border-gray-200 dark:border-gray-800 rounded-md p-4">
+      <main className="max-w-xl mx-auto px-5 py-10">
+        <header className="mb-10">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Create group</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Name it, get a code</p>
+        </header>
+        <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-5">
             {error && <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>}
             {success && <p className="mb-4 text-green-600 dark:text-green-400 text-sm">{success}</p>}
 
@@ -103,7 +115,7 @@ export default function CreateGroup() {
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-sm"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                   placeholder="e.g. Weekend Squad"
                   required
                   autoFocus
@@ -122,7 +134,7 @@ export default function CreateGroup() {
                       value={formData.description}
                       onChange={handleInputChange}
                       rows={2}
-                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 resize-none text-sm"
+                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 resize-none text-sm"
                       placeholder="Optional note..."
                     />
                   </div>
@@ -138,7 +150,7 @@ export default function CreateGroup() {
                       onChange={handleInputChange}
                       min="2"
                       max="100"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-sm"
+                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                     />
                   </div>
                   <div>
@@ -153,7 +165,7 @@ export default function CreateGroup() {
                       onChange={handleInputChange}
                       min="1"
                       max="90"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-sm"
+                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                     />
                   </div>
                   <div>
@@ -172,7 +184,7 @@ export default function CreateGroup() {
                       min="1"
                       max="100"
                       placeholder="Leave empty for time only"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-sm"
+                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                     />
                   </div>
                 </>
@@ -191,7 +203,7 @@ export default function CreateGroup() {
               <button
                 type="submit"
                 disabled={isCreating}
-                className="w-full px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-md hover:opacity-90 disabled:opacity-50 text-sm"
+                className="w-full px-5 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:opacity-90 disabled:opacity-50 text-[13px]"
               >
                 {isCreating ? (
                   <span className="flex items-center justify-center gap-2">
