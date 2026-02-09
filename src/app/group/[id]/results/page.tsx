@@ -181,7 +181,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       const canvas = await html2canvas(el, {
         scale: 3,
         useCORS: true,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#0f172a',
         logging: false,
       });
       canvas.toBlob(async (blob) => {
@@ -215,13 +215,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
     }
   };
 
-  const getAuraLevel = (totalAura: number) => {
-    if (totalAura >= 5000) return { level: 'Deeply appreciated' };
-    if (totalAura >= 3000) return { level: 'Really valued' };
-    if (totalAura >= 1500) return { level: 'Well seen' };
-    if (totalAura >= 800) return { level: 'Noticed' };
-    return { level: 'Getting started' };
-  };
 
   if (loading || isLoading) {
     return (
@@ -258,7 +251,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       <main className="max-w-xl mx-auto px-5 py-10">
           <header className="mb-10 results-item" style={{ animationDelay: '0.02s' }}>
             <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">
-              What Friends Appreciate
+              Results
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm">{group.name}</p>
             {(() => {
@@ -376,8 +369,8 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
             return (
               <div id="shareable-cards" className="mb-10">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 results-item" style={{ animationDelay: '0.1s' }}>Share your ranking</h3>
-                <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4 results-item" style={{ animationDelay: '0.12s' }}>Voting closed. Share your card with friends.</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 results-item" style={{ animationDelay: '0.1s' }}>Your card</h3>
+                <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4 results-item" style={{ animationDelay: '0.12s' }}>Share your ranking when voting is closed.</p>
                 {rankings.filter(r => r.userId === user.uid).map((ranking, index) => {
               const rank = rankings.findIndex(r => r.userId === user.uid) + 1;
               const card = generateRankCard({
@@ -387,7 +380,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                 displayName: ranking.displayName,
                 totalAura: ranking.totalAura,
               });
-              const auraLevel = getAuraLevel(ranking.totalAura);
               const isCurrentUser = ranking.userId === user.uid;
 
               return (
@@ -412,7 +404,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                       totalInGroup={rankings.length}
                       groupName={group.name}
                       totalAura={ranking.totalAura}
-                      auraLevel={auraLevel.level}
                       headline={card.headline}
                       subline={card.subline}
                     />
@@ -444,19 +435,17 @@ export default function ResultsPage({ params }: ResultsPageProps) {
           })()}
 
           <div className="mb-10">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 results-item" style={{ animationDelay: '0.08s' }}>What friends appreciate</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 results-item" style={{ animationDelay: '0.08s' }}>Rankings</h3>
             
             {rankings.length === 0 ? (
               <div className="text-center py-12 results-item" style={{ animationDelay: '0.1s' }}>
                 <div className="w-px h-12 bg-gray-300 dark:bg-gray-600 mx-auto mb-4" />
-                <p className="text-gray-900 dark:text-gray-200 text-sm">No appreciation shared yet.</p>
-                <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1">Be the first.</p>
+                <p className="text-gray-900 dark:text-gray-200 text-sm">No ratings yet.</p>
               </div>
             ) : (
               <div className="space-y-2">
                 {rankings.map((ranking, index) => {
                   const rank = index + 1;
-                  const auraLevel = getAuraLevel(ranking.totalAura);
                   const isYou = ranking.userId === user.uid;
                   
                   return (
@@ -487,9 +476,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                                 <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">you</span>
                               )}
                             </div>
-                            <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
-                              {auraLevel.level}
-                            </div>
                           </div>
                         </div>
                         
@@ -510,7 +496,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                             className="flex items-center justify-between w-full text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
                           >
                             <span>
-                              {ranking.ratingsReceived.length} friend{ranking.ratingsReceived.length !== 1 ? 's' : ''} shared what they appreciate
+                              {ranking.ratingsReceived.length} friend{ranking.ratingsReceived.length !== 1 ? 's' : ''} rated
                             </span>
                             <svg 
                               className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${expandedRatings.includes(ranking.userId) ? 'rotate-180' : ''}`} 
@@ -567,7 +553,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
               displayName: myRanking.displayName,
               totalAura: myRanking.totalAura,
             });
-            const auraLevel = getAuraLevel(myRanking.totalAura);
             return (
               <div
                 className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
@@ -593,7 +578,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                       totalInGroup={rankings.length}
                       groupName={group.name}
                       totalAura={myRanking.totalAura}
-                      auraLevel={auraLevel.level}
                       headline={card.headline}
                       subline={card.subline}
                     />

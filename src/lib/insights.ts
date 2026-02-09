@@ -94,30 +94,29 @@ export interface RankCardInput {
   totalAura: number;
 }
 
-// Encouraging, shareable messages for each rank - all positive
+// Straightforward, shareable messages for each rank
 const RANK_1_MESSAGES = [
-  "Top of the group! Your friends really see you.",
-  "You're #1 in {groupName}! Your presence matters.",
-  "First place! Your energy shines through.",
+  "#1 in {groupName}",
+  "First place",
+  "Top of the group",
 ];
 
 const RANK_2_MESSAGES = [
-  "Second place! You're deeply appreciated.",
-  "Runner-up in {groupName}! You make an impact.",
-  "So close to the top! Your friends value you.",
+  "#2 in {groupName}",
+  "Second place",
+  "Runner-up",
 ];
 
 const RANK_3_MESSAGES = [
-  "Top 3! You're someone people remember.",
-  "Bronze in {groupName}! Your authenticity shows.",
-  "Third place! You bring something special.",
+  "#3 in {groupName}",
+  "Third place",
+  "Top 3",
 ];
 
 const RANK_OTHER_MESSAGES = [
-  "Part of the crew! Your friends appreciate you.",
-  "You're in {groupName}! That says a lot.",
-  "You showed up. That's what matters.",
-  "Your friends see you. Keep being you.",
+  "Ranked in {groupName}",
+  "Part of {groupName}",
+  "Joined the group",
 ];
 
 export function generateRankCard(input: RankCardInput): { headline: string; subline: string; shareText: string } {

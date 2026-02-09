@@ -17,8 +17,7 @@ export default function MyGroupsPage() {
   const [error, setError] = useState<string | null>(null);
   const [leavingGroupId, setLeavingGroupId] = useState<string | null>(null);
   const [closingGroupId, setClosingGroupId] = useState<string | null>(null);
-  const [visibleCodes, setVisibleCodes] = useState<{[key: string]: boolean}>({});
-  const [copiedGroupId, setCopiedGroupId] = useState<string | null>(null);
+  const [sharedGroupId, setSharedGroupId] = useState<string | null>(null);
   const [unratedCountByGroupId, setUnratedCountByGroupId] = useState<Record<string, number>>({});
 
   const loadUserGroups = useCallback(async () => {
@@ -83,24 +82,6 @@ export default function MyGroupsPage() {
     }
   };
 
-  const copyGroupLink = async (group: GroupSession) => {
-    const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/join-group?code=${group.code}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedGroupId(group.id!);
-      setTimeout(() => setCopiedGroupId(null), 2000);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = url;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopiedGroupId(group.id!);
-      setTimeout(() => setCopiedGroupId(null), 2000);
-    }
-  };
-
   const handleLeaveGroup = async (groupId: string) => {
     if (!user) return;
 
@@ -122,21 +103,28 @@ export default function MyGroupsPage() {
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({ title, url, text: `Join my group "${group.name}" on Aura` });
-        setCopiedGroupId(group.id!);
-        setTimeout(() => setCopiedGroupId(null), 2000);
+        setSharedGroupId(group.id!);
+        setTimeout(() => setSharedGroupId(null), 2000);
         return;
       } catch {
         // User cancelled or share failed
       }
     }
-    copyGroupLink(group);
-  };
-
-  const toggleCodeVisibility = (groupId: string) => {
-    setVisibleCodes(prev => ({
-      ...prev,
-      [groupId]: !prev[groupId]
-    }));
+    // Fallback: copy to clipboard when Web Share API unavailable
+    try {
+      await navigator.clipboard.writeText(url);
+      setSharedGroupId(group.id!);
+      setTimeout(() => setSharedGroupId(null), 2000);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setSharedGroupId(group.id!);
+      setTimeout(() => setSharedGroupId(null), 2000);
+    }
   };
 
   if (loading || isLoading) {
@@ -225,24 +213,18 @@ export default function MyGroupsPage() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ml-[52px]">
-                        <span className="font-mono">{visibleCodes[group.id!] ? group.code : '••••••'}</span>
-                        <button onClick={() => toggleCodeVisibility(group.id!)} className="p-1 hover:text-amber-600 dark:hover:text-amber-400 rounded" title={visibleCodes[group.id!] ? 'Hide code' : 'Show code'}>
-                          {visibleCodes[group.id!] ? (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                          )}
-                        </button>
-                        <button onClick={() => copyGroupLink(group)} className="p-1 hover:text-amber-600 dark:hover:text-amber-400 rounded" title="Copy link">
-                          {copiedGroupId === group.id ? (
+                      <div className="flex items-center gap-2 ml-[52px]">
+                        <button
+                          onClick={() => shareGroupLink(group)}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-sm font-medium hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+                          title="Share invite link"
+                        >
+                          {sharedGroupId === group.id ? (
                             <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                           ) : (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
                           )}
-                        </button>
-                        <button onClick={() => shareGroupLink(group)} className="p-1 hover:text-amber-600 dark:hover:text-amber-400 rounded" title="Share invite link">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                          Share
                         </button>
                       </div>
                       {group.description && (
