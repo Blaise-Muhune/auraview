@@ -11,7 +11,7 @@ export default function GroupPage() {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.push('/login');
+      router.push('/leaderboard');
       return;
     }
     router.replace('/my-groups');

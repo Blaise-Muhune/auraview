@@ -1,22 +1,45 @@
 'use client';
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useRef, useMemo, useCallback } from "react";
 import html2canvas from "html2canvas";
 import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { use } from "react";
-import { getGroupById, getGroupRatings, getUserProfilesByIds, getUserDisplayName, isVotingClosed, Rating, GroupSession, UserProfile } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getUserProfilesByIds, getUserDisplayName, isVotingClosed, Rating, GroupSession, UserProfile, getSlotId, isSlotId } from "@/lib/firestore";
 import { generateRankCard } from "@/lib/insights";
 import { ShareableCard } from "@/components/ShareableCard";
+
+/** Same score = same rank; next distinct score gets next rank (e.g. 1, 2, 2, 4). */
+function getDisplayRanks<T>(sortedList: T[], getScore: (item: T) => number): number[] {
+  const ranks: number[] = [];
+  for (let i = 0; i < sortedList.length; i++) {
+    if (i === 0) ranks.push(1);
+    else {
+      const prev = getScore(sortedList[i - 1]!);
+      const curr = getScore(sortedList[i]!);
+      ranks.push(prev === curr ? ranks[i - 1]! : i + 1);
+    }
+  }
+  return ranks;
+}
 
 interface ResultsPageProps {
   params: Promise<{
     id: string;
   }>;
 }
+
+const GROUP_SORT_OPTIONS = [
+  { value: 'total', label: 'Total Aura' },
+  { value: 'presence_energy', label: 'Room presence' },
+  { value: 'authenticity_self_vibe', label: 'Authenticity' },
+  { value: 'social_pull', label: 'Vibe' },
+  { value: 'style_aesthetic', label: 'Style' },
+  { value: 'trustworthy', label: 'Trustworthy' },
+] as const;
 
 interface UserRanking {
   userId: string;
@@ -26,6 +49,7 @@ interface UserRanking {
   totalAura: number;
   ratingsReceived: Rating[];
   isCreator: boolean;
+  questionTotals?: { [key: string]: number };
 }
 
 export default function ResultsPage({ params }: ResultsPageProps) {
@@ -37,15 +61,54 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   const [rankings, setRankings] = useState<UserRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedRatings, setExpandedRatings] = useState<string[]>([]);
   const [, setSharedCardUserId] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [showMyCardModal, setShowMyCardModal] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<string>('total');
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const getScoreForSort = useCallback((r: UserRanking) =>
+    sortBy === 'total' ? r.totalAura : (r.questionTotals?.[sortBy] ?? 0), [sortBy]);
+
+  const filteredRankings = useMemo(() => {
+    const list = [...rankings];
+    list.sort((a, b) => getScoreForSort(b) - getScoreForSort(a));
+    return list;
+  }, [rankings, getScoreForSort]);
+
+  const displayRanks = useMemo(() => getDisplayRanks(filteredRankings, getScoreForSort), [filteredRankings, getScoreForSort]);
+
+  const displayRanksByTotal = useMemo(() => getDisplayRanks(rankings, r => r.totalAura), [rankings]);
+
+  const handleShareProfile = async () => {
+    if (!user) return;
+    const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/rate-user/${user.uid}`;
+    const message = 'Give me your honest feedback on Aura — a quick app where friends rate each other. Rate me here: ' + url;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: 'Rate me on Aura', text: message, url });
+        setShareFeedback('Shared!');
+      } else {
+        await navigator.clipboard?.writeText(message);
+        setShareFeedback('Message copied!');
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        try {
+          await navigator.clipboard?.writeText(message);
+          setShareFeedback('Message copied!');
+        } catch {
+          setShareFeedback('Could not share');
+        }
+      }
+    }
+    setTimeout(() => setShareFeedback(null), 3000);
+  };
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/leaderboard');
       return;
     }
 
@@ -83,25 +146,21 @@ export default function ResultsPage({ params }: ResultsPageProps) {
     }
   };
 
-  const toggleRatings = (userId: string) => {
-    setExpandedRatings(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
+  const QUESTION_IDS = ['presence_energy', 'authenticity_self_vibe', 'social_pull', 'style_aesthetic', 'trustworthy'] as const;
 
   const calculateRankings = async (groupData: GroupSession, ratingsData: Rating[], userProfiles: UserProfile[]) => {
-    // Create a map of user totals
     const userTotals = new Map<string, { points: number; ratings: Rating[] }>();
 
-    // Initialize all participants with 0 points
-    groupData.participants.forEach(participantId => {
-      userTotals.set(participantId, { points: 0, ratings: [] });
+    const targets: string[] =
+      groupData.slots && groupData.slots.length > 0
+        ? groupData.slots.map((s, i) => (s.userId ? s.userId : getSlotId(groupData.id!, i)))
+        : groupData.participants;
+
+    targets.forEach((targetId) => {
+      userTotals.set(targetId, { points: 0, ratings: [] });
     });
 
-    // Calculate totals from ratings
-    ratingsData.forEach(rating => {
+    ratingsData.forEach((rating) => {
       const current = userTotals.get(rating.toUserId);
       if (current) {
         current.points += rating.points;
@@ -109,44 +168,74 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       }
     });
 
-    // Create a map of user profiles for easy lookup
+    const buildQuestionTotals = (ratingsList: Rating[]): { [key: string]: number } => {
+      const totals: { [key: string]: number } = {};
+      for (const qid of QUESTION_IDS) {
+        totals[qid] = 0;
+      }
+      ratingsList.forEach((r) => {
+        if (r.questionScores && typeof r.questionScores === 'object') {
+          for (const qid of QUESTION_IDS) {
+            const val = r.questionScores[qid];
+            if (typeof val === 'number') totals[qid] = (totals[qid] ?? 0) + val;
+          }
+        }
+      });
+      return totals;
+    };
+
     const userProfileMap = new Map<string, UserProfile>();
-    userProfiles.forEach(profile => {
+    userProfiles.forEach((profile) => {
       userProfileMap.set(profile.id, profile);
     });
 
-    // Convert to rankings array with async display name resolution
-    const rankingsPromises = Array.from(userTotals.entries()).map(async ([userId, data]) => {
-      const profile = userProfileMap.get(userId);
-      // Exclude users who opted out of group leaderboard (undefined = not asked yet, show by default)
+    const rankingsPromises = Array.from(userTotals.entries()).map(async ([targetId, data]) => {
+      const questionTotals = buildQuestionTotals(data.ratings);
+      if (isSlotId(targetId)) {
+        const match = targetId.match(/^slot:[^:]+:(\d+)$/);
+        const slotIndex = match ? parseInt(match[1], 10) : -1;
+        const slot = groupData.slots?.[slotIndex];
+        const displayName = slot?.displayName ?? slot?.label ?? 'Unknown';
+        return {
+          userId: targetId,
+          displayName,
+          totalPoints: data.points,
+          baseAura: 500,
+          totalAura: 500 + data.points,
+          ratingsReceived: data.ratings,
+          isCreator: false,
+          questionTotals,
+        };
+      }
+
+      const profile = userProfileMap.get(targetId);
       if (profile?.showOnGroupLeaderboard === false) return null;
 
       let displayName: string;
       if (profile?.groupLeaderboardAnonymous) {
         displayName = 'Anonymous';
-      } else if (userId === groupData.createdBy) {
+      } else if (groupData.participantDisplayNames?.[targetId]) {
+        displayName = groupData.participantDisplayNames[targetId];
+      } else if (targetId === groupData.createdBy) {
         displayName = groupData.createdByDisplayName;
       } else {
-        displayName = await getUserDisplayName(userId);
+        displayName = await getUserDisplayName(targetId);
       }
 
       return {
-        userId,
+        userId: targetId,
         displayName,
         totalPoints: data.points,
         baseAura: 500,
         totalAura: 500 + data.points,
         ratingsReceived: data.ratings,
-        isCreator: userId === groupData.createdBy
+        isCreator: targetId === groupData.createdBy,
+        questionTotals,
       };
     });
 
-    // Wait for all display names to be resolved, filter out excluded users
     const rankingsArray = (await Promise.all(rankingsPromises)).filter((r): r is NonNullable<typeof r> => r !== null);
-
-    // Sort by total aura (descending)
     rankingsArray.sort((a, b) => b.totalAura - a.totalAura);
-
     setRankings(rankingsArray);
   };
 
@@ -267,81 +356,66 @@ export default function ResultsPage({ params }: ResultsPageProps) {
             })()}
           </header>
 
-          {/* Stats – typographic only */}
-          <div className="grid grid-cols-3 gap-6 mb-12 results-item" style={{ animationDelay: '0.06s' }}>
-            <div>
-              <div className="font-mono text-2xl tabular-nums text-gray-900 dark:text-gray-100">{rankings.length}</div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 mt-0.5">Participants</div>
-            </div>
-            <div>
-              <div className="font-mono text-2xl tabular-nums text-gray-900 dark:text-gray-100">{ratings.length}</div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 mt-0.5">Ratings</div>
-            </div>
-            <div>
-              <div className="font-mono text-2xl tabular-nums text-gray-900 dark:text-gray-100">
-                {rankings.reduce((sum, rank) => sum + rank.totalPoints, 0).toLocaleString()}
-              </div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 mt-0.5">Points</div>
-            </div>
-          </div>
-
-          {/* Podium – flat, sculptural */}
-          {rankings.length >= 3 && (
+          {/* Podium – flat, sculptural (top 3 by current sort) */}
+          {filteredRankings.length >= 3 && (
             <div className="mb-12 results-item" style={{ animationDelay: '0.1s' }}>
               <div className="flex items-end justify-center gap-1 sm:gap-2">
                 <div className="flex flex-col items-center flex-1 max-w-[90px]">
                   <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-600 dark:bg-gray-600 flex items-center justify-center text-white font-semibold text-lg mb-2">
-                    {rankings[1]?.displayName.charAt(0).toUpperCase()}
+                    {filteredRankings[1]?.displayName.charAt(0).toUpperCase()}
                   </div>
                   <div className="text-center mb-2">
-                    <div className="text-[13px] text-gray-900 dark:text-gray-200 truncate max-w-full" title={rankings[1]?.displayName}>
-                      {rankings[1]?.displayName}
+                    <div className="text-[13px] text-gray-900 dark:text-gray-200 truncate max-w-full" title={filteredRankings[1]?.displayName}>
+                      {filteredRankings[1]?.displayName}
                     </div>
-                    <div className="font-mono text-lg tabular-nums text-gray-500 dark:text-gray-400">{rankings[1]?.totalAura.toLocaleString()}</div>
+                    <div className="font-mono text-lg tabular-nums text-gray-500 dark:text-gray-400">{sortBy === 'total' ? `${filteredRankings[1]?.totalAura.toLocaleString()} aura` : (filteredRankings[1]?.questionTotals?.[sortBy] ?? 0).toLocaleString()}</div>
+                    {filteredRankings[1]?.ratingsReceived.length ? <div className="text-[10px] text-gray-500 dark:text-gray-400">{filteredRankings[1].ratingsReceived.length} rated</div> : null}
                   </div>
                   <div className="w-full bg-gray-600 dark:bg-gray-600 h-16 sm:h-20" />
                   <div className="w-full h-6 bg-gray-600 dark:bg-gray-600 flex items-center justify-center">
-                    <span className="font-mono text-sm text-neutral-400">2</span>
+                    <span className="font-mono text-sm text-neutral-400">{displayRanks[1] ?? 2}</span>
                   </div>
                 </div>
                 <div className="flex flex-col items-center flex-1 max-w-[110px]">
                   <div className="w-14 h-14 sm:w-[72px] sm:h-[72px] bg-amber-500 flex items-center justify-center text-white font-semibold text-xl mb-2">
-                    {rankings[0]?.displayName.charAt(0).toUpperCase()}
+                    {filteredRankings[0]?.displayName.charAt(0).toUpperCase()}
                   </div>
                   <div className="text-center mb-2">
-                    <div className="text-[13px] text-gray-900 dark:text-gray-200 truncate max-w-full" title={rankings[0]?.displayName}>
-                      {rankings[0]?.displayName}
+                    <div className="text-[13px] text-gray-900 dark:text-gray-200 truncate max-w-full" title={filteredRankings[0]?.displayName}>
+                      {filteredRankings[0]?.displayName}
                     </div>
-                    <div className="font-mono text-xl tabular-nums text-amber-600 dark:text-amber-400">{rankings[0]?.totalAura.toLocaleString()}</div>
+                    <div className="font-mono text-xl tabular-nums text-amber-600 dark:text-amber-400">{sortBy === 'total' ? `${filteredRankings[0]?.totalAura.toLocaleString()} aura` : (filteredRankings[0]?.questionTotals?.[sortBy] ?? 0).toLocaleString()}</div>
+                    {filteredRankings[0]?.ratingsReceived.length ? <div className="text-[10px] text-gray-500 dark:text-gray-400">{rankings[0].ratingsReceived.length} rated</div> : null}
                   </div>
                   <div className="w-full bg-amber-500 h-24 sm:h-28" />
                   <div className="w-full h-6 bg-amber-500 flex items-center justify-center">
-                    <span className="font-mono text-sm text-white/90">1</span>
+                    <span className="font-mono text-sm text-white/90">{displayRanks[0] ?? 1}</span>
                   </div>
                 </div>
                 <div className="flex flex-col items-center flex-1 max-w-[90px]">
                   <div className="w-12 h-12 sm:w-14 sm:h-14 bg-amber-700 flex items-center justify-center text-white font-semibold text-lg mb-2">
-                    {rankings[2]?.displayName.charAt(0).toUpperCase()}
+                    {filteredRankings[2]?.displayName.charAt(0).toUpperCase()}
                   </div>
                   <div className="text-center mb-2">
-                    <div className="text-[13px] text-gray-900 dark:text-gray-200 truncate max-w-full" title={rankings[2]?.displayName}>
-                      {rankings[2]?.displayName}
+                    <div className="text-[13px] text-gray-900 dark:text-gray-200 truncate max-w-full" title={filteredRankings[2]?.displayName}>
+                      {filteredRankings[2]?.displayName}
                     </div>
-                    <div className="font-mono text-lg tabular-nums text-gray-500 dark:text-gray-400">{rankings[2]?.totalAura.toLocaleString()}</div>
+                    <div className="font-mono text-lg tabular-nums text-gray-500 dark:text-gray-400">{sortBy === 'total' ? `${filteredRankings[2]?.totalAura.toLocaleString()} aura` : (filteredRankings[2]?.questionTotals?.[sortBy] ?? 0).toLocaleString()}</div>
+                    {filteredRankings[2]?.ratingsReceived.length ? <div className="text-[10px] text-gray-500 dark:text-gray-400">{rankings[2].ratingsReceived.length} rated</div> : null}
                   </div>
                   <div className="w-full bg-amber-700 h-12 sm:h-16" />
                   <div className="w-full h-6 bg-amber-700 flex items-center justify-center">
-                    <span className="font-mono text-sm text-neutral-300">3</span>
+                    <span className="font-mono text-sm text-neutral-300">{displayRanks[2] ?? 3}</span>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {rankings.length > 0 && rankings.length < 3 && (
+          {filteredRankings.length > 0 && filteredRankings.length < 3 && (
             <div className="mb-12 flex justify-center gap-10 results-item" style={{ animationDelay: '0.1s' }}>
-              {rankings.map((ranking, index) => {
-                const rank = index + 1;
+              {filteredRankings.map((ranking, index) => {
+                const rank = displayRanks[index] ?? index + 1;
                 const isFirst = rank === 1;
                 return (
                   <div key={ranking.userId} className="flex flex-col items-center">
@@ -352,7 +426,10 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                     </div>
                     <div className="text-center">
                       <div className="text-[13px] text-gray-900 dark:text-gray-200">{ranking.displayName}</div>
-                      <div className={`font-mono text-lg tabular-nums ${isFirst ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>{ranking.totalAura.toLocaleString()}</div>
+                      <div className={`font-mono text-lg tabular-nums ${isFirst ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                        {sortBy === 'total' ? `${ranking.totalAura.toLocaleString()} aura` : (ranking.questionTotals?.[sortBy] ?? 0).toLocaleString()}
+                      </div>
+                      {ranking.ratingsReceived.length > 0 && <div className="text-[10px] text-gray-500 dark:text-gray-400">{ranking.ratingsReceived.length} rated</div>}
                     </div>
                   </div>
                 );
@@ -371,7 +448,8 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 results-item" style={{ animationDelay: '0.1s' }}>Your card</h3>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4 results-item" style={{ animationDelay: '0.12s' }}>Share your ranking when voting is closed.</p>
                 {rankings.filter(r => r.userId === user.uid).map((ranking, index) => {
-              const rank = rankings.findIndex(r => r.userId === user.uid) + 1;
+              const idx = rankings.findIndex(r => r.userId === user.uid);
+              const rank = idx >= 0 ? displayRanksByTotal[idx]! : 1;
               const card = generateRankCard({
                 rank,
                 totalInGroup: rankings.length,
@@ -435,7 +513,20 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
           <div className="mb-10">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 results-item" style={{ animationDelay: '0.08s' }}>Rankings</h3>
-            
+            {rankings.length > 0 && (
+              <div className="mb-4 results-item flex flex-wrap items-center gap-2">
+                <span className="text-sm text-gray-500 dark:text-gray-400">Sort by:</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500"
+                >
+                  {GROUP_SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {rankings.length === 0 ? (
               <div className="text-center py-12 results-item" style={{ animationDelay: '0.1s' }}>
                 <div className="w-px h-12 bg-gray-300 dark:bg-gray-600 mx-auto mb-4" />
@@ -443,8 +534,11 @@ export default function ResultsPage({ params }: ResultsPageProps) {
               </div>
             ) : (
               <div className="space-y-2">
-                {rankings.map((ranking, index) => {
-                  const rank = index + 1;
+                {(() => {
+                  const listStart = filteredRankings.length >= 3 ? 3 : 0;
+                  const listRankings = filteredRankings.slice(listStart);
+                  return listRankings.map((ranking, index) => {
+                  const rank = displayRanks[listStart + index] ?? listStart + index + 1;
                   const isYou = ranking.userId === user.uid;
                   
                   return (
@@ -455,7 +549,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                           ? 'border-l-amber-500 bg-gray-50 dark:bg-gray-900/50' 
                           : rank === 1 ? 'border-l-amber-500/50' : 'border-l-gray-200 dark:border-l-gray-700'
                       }`}
-                      style={{ animationDelay: `${0.12 + index * 0.05}s` }}
+                      style={{ animationDelay: `${0.12 + (listStart + index) * 0.05}s` }}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
                         <div className="flex items-center gap-3">
@@ -480,47 +574,42 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                         
                         <div className="text-right sm:text-left pl-11 sm:pl-0">
                           <div className="font-mono text-lg tabular-nums text-gray-900 dark:text-gray-100">
-                            {ranking.totalAura.toLocaleString()}
+                            {sortBy === 'total' ? (
+                              <>{ranking.totalAura.toLocaleString()} <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">aura</span></>
+                            ) : (
+                              (ranking.questionTotals?.[sortBy] ?? 0).toLocaleString()
+                            )}
                           </div>
-                          <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                            {ranking.totalPoints.toLocaleString()} + {ranking.baseAura} base
-                          </div>
-                        </div>
-                      </div>
-
-                      {ranking.ratingsReceived.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                          <button
-                            onClick={() => toggleRatings(ranking.userId)}
-                            className="flex items-center justify-between w-full text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                          >
-                            <span>
-                              {ranking.ratingsReceived.length} friend{ranking.ratingsReceived.length !== 1 ? 's' : ''} rated
-                            </span>
-                            <svg 
-                              className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${expandedRatings.includes(ranking.userId) ? 'rotate-180' : ''}`} 
-                              fill="none" 
-                              viewBox="0 0 24 24" 
-                              stroke="currentColor"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                          
-                          {expandedRatings.includes(ranking.userId) && (
-                            <div className="space-y-0.5 mt-2">
-                              {Array.from(new Map(ranking.ratingsReceived.map(r => [r.fromUserId, r.fromUserDisplayName])).values()).map((name, i) => (
-                                <div key={i} className="text-[12px] text-gray-500 dark:text-gray-400">
-                                  {name}
-                                </div>
-                              ))}
+                          {sortBy !== 'total' && (
+                            <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                              total {ranking.totalAura.toLocaleString()} aura
                             </div>
                           )}
+                          {ranking.ratingsReceived.length > 0 && (
+                            <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                              {ranking.ratingsReceived.length} rated
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {isYou && (
+                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <button
+                            type="button"
+                            onClick={handleShareProfile}
+                            className="flex items-center gap-2 text-[12px] text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+                          >
+                            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                            </svg>
+                            {shareFeedback || 'Share profile & gain more aura'}
+                          </button>
                         </div>
                       )}
                     </div>
                   );
-                })}
+                });
+                })()}
               </div>
             )}
           </div>
@@ -544,7 +633,8 @@ export default function ResultsPage({ params }: ResultsPageProps) {
           {showMyCardModal && group && (() => {
             const myRanking = rankings.find(r => r.userId === user.uid);
             if (!myRanking) return null;
-            const rank = rankings.findIndex(r => r.userId === user.uid) + 1;
+            const rankIdx = rankings.findIndex(r => r.userId === user.uid);
+            const rank = rankIdx >= 0 ? displayRanksByTotal[rankIdx]! : 1;
             const card = generateRankCard({
               rank,
               totalInGroup: rankings.length,

@@ -18,7 +18,8 @@ export default function CreateGroup() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    maxParticipants: 50,
+    expectedCount: 8,
+    memberNamesText: '',
     votingDurationDays: 7,
     minVotersToClose: '' as number | '',
   });
@@ -26,7 +27,7 @@ export default function CreateGroup() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/leaderboard');
     }
   }, [user, loading, router]);
 
@@ -51,13 +52,20 @@ export default function CreateGroup() {
         throw new Error('Group name is required');
       }
 
+      const slotLabels = formData.memberNamesText
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const expectedCount = Math.max(2, Math.min(100, Number(formData.expectedCount) || 8));
       await createGroupSession(
         formData.name.trim(),
         formData.description.trim(),
         user,
-        formData.maxParticipants,
+        expectedCount,
         formData.votingDurationDays,
-        typeof formData.minVotersToClose === 'number' ? formData.minVotersToClose : undefined
+        typeof formData.minVotersToClose === 'number' ? formData.minVotersToClose : undefined,
+        slotLabels.length > 0 ? slotLabels : undefined
       );
 
       setSuccess(`Group created! Redirecting...`);
@@ -122,6 +130,39 @@ export default function CreateGroup() {
                 />
               </div>
 
+              <div>
+                <label htmlFor="expectedCount" className="block text-gray-900 dark:text-gray-100 text-sm font-medium mb-2">
+                  Number of people
+                </label>
+                <input
+                  type="number"
+                  id="expectedCount"
+                  name="expectedCount"
+                  value={formData.expectedCount}
+                  onChange={handleInputChange}
+                  min="2"
+                  max="100"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you)</p>
+              </div>
+
+              <div>
+                <label htmlFor="memberNamesText" className="block text-gray-900 dark:text-gray-100 text-sm font-medium mb-2">
+                  Add names <span className="text-gray-500 dark:text-gray-400 font-normal">(optional but encouraged)</span>
+                </label>
+                <textarea
+                  id="memberNamesText"
+                  name="memberNamesText"
+                  value={formData.memberNamesText}
+                  onChange={handleInputChange}
+                  rows={4}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 resize-y text-sm"
+                  placeholder="One name per line or comma-separated&#10;e.g. Alice, Bob, Charlie"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">When you add names, joiners will pick one and can edit it. Easier for group chats.</p>
+              </div>
+
               {showAdvanced && (
                 <>
                   <div>
@@ -136,21 +177,6 @@ export default function CreateGroup() {
                       rows={2}
                       className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 resize-none text-sm"
                       placeholder="Optional note..."
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="maxParticipants" className="block text-gray-900 dark:text-gray-100 font-medium mb-2 text-sm">
-                      Max Participants
-                    </label>
-                    <input
-                      type="number"
-                      id="maxParticipants"
-                      name="maxParticipants"
-                      value={formData.maxParticipants}
-                      onChange={handleInputChange}
-                      min="2"
-                      max="100"
-                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                     />
                   </div>
                   <div>

@@ -87,13 +87,30 @@ export async function POST(request: Request) {
       if (!groupSnap.exists) {
         return NextResponse.json({ error: 'Group not found' }, { status: 404 });
       }
-      const group = groupSnap.data() as { participants?: string[] };
+      const group = groupSnap.data() as { participants?: string[]; slots?: Array<{ userId?: string }> };
       const participants = group.participants || [];
       if (!participants.includes(fromUserId)) {
         return NextResponse.json({ error: 'Not a member of this group' }, { status: 403 });
       }
-      if (!participants.includes(toUserId)) {
-        return NextResponse.json({ error: 'Target user not in group' }, { status: 403 });
+      const isSlotId = toUserId.startsWith('slot:');
+      if (isSlotId) {
+        const match = toUserId.match(/^slot:([^:]+):(\d+)$/);
+        if (!match || match[1] !== groupId) {
+          return NextResponse.json({ error: 'Invalid slot target' }, { status: 400 });
+        }
+        const slotIndex = parseInt(match[2], 10);
+        const slots = group.slots || [];
+        if (slotIndex < 0 || slotIndex >= slots.length) {
+          return NextResponse.json({ error: 'Slot index out of range' }, { status: 400 });
+        }
+        const slot = slots[slotIndex];
+        if (slot?.userId === fromUserId) {
+          return NextResponse.json({ error: 'Cannot rate yourself' }, { status: 400 });
+        }
+      } else {
+        if (!participants.includes(toUserId)) {
+          return NextResponse.json({ error: 'Target user not in group' }, { status: 403 });
+        }
       }
     }
 

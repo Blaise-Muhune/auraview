@@ -125,7 +125,7 @@ export function Nav({
     setMenuOpen(false);
     try {
       await signOut();
-      router.push('/');
+      router.push('/leaderboard');
     } catch (e) {
       if (process.env.NODE_ENV === 'development') {
         console.error(e);

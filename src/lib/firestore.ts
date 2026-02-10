@@ -5,6 +5,7 @@ import {
   getDoc, 
   getDocs, 
   updateDoc, 
+  writeBatch,
   query, 
   where, 
   orderBy, 
@@ -17,6 +18,13 @@ import { db } from './firebase';
 import { User } from 'firebase/auth';
 
 // Types
+/** One slot: optional label from creator; when claimed, userId and displayName (joiner can modify label) */
+export interface GroupSlot {
+  label: string;
+  userId?: string;
+  displayName?: string;
+}
+
 export interface GroupSession {
   id?: string;
   name: string;
@@ -28,6 +36,10 @@ export interface GroupSession {
   isActive: boolean;
   participants: string[];
   maxParticipants?: number;
+  /** When set, join flow: pick a slot and set display name. Creator added names at creation. */
+  slots?: GroupSlot[];
+  /** Per-group display names (set when joining; used in results/rate) */
+  participantDisplayNames?: Record<string, string>;
   /** When true, creator has manually closed voting */
   votingClosed?: boolean;
   /** Auto-close voting after this time (default: 7 days after creation) */
@@ -84,6 +96,8 @@ export interface Rating {
   points: number;
   reason?: string;
   createdAt: Timestamp;
+  /** Per-question scores when submitted via group/direct rate (e.g. presence_energy, authenticity_self_vibe). */
+  questionScores?: { [key: string]: number };
 }
 
 export interface FamousPersonRating {
@@ -110,6 +124,33 @@ export interface FamousPerson {
   isUnrated?: boolean;
 }
 
+// Synthetic ID for unclaimed slot (used in ratings until someone joins)
+export const getSlotId = (groupId: string, slotIndex: number): string =>
+  `slot:${groupId}:${slotIndex}`;
+
+export const isSlotId = (id: string): boolean => id.startsWith('slot:');
+
+// Migrate ratings from slot placeholder to real user when they join (via API; ratings are server-write-only)
+export const migrateSlotRatingsToUser = async (
+  groupId: string,
+  slotIndex: number,
+  userId: string,
+  displayName: string,
+  getIdToken?: () => Promise<string>
+): Promise<void> => {
+  if (!getIdToken) return;
+  const token = await getIdToken();
+  const res = await fetch('/api/groups/migrate-slot-ratings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ groupId, slotIndex }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `Failed to migrate ratings (${res.status})`);
+  }
+};
+
 // Generate a random 6-character code
 export const generateGroupCode = (): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -129,40 +170,58 @@ export const checkGroupCodeExists = async (code: string): Promise<boolean> => {
 
 // Create a new group session
 export const createGroupSession = async (
-  name: string, 
-  description: string, 
+  name: string,
+  description: string,
   user: User,
-  maxParticipants?: number,
+  expectedCount: number,
   votingDurationDays?: number,
-  minVotersToClose?: number
+  minVotersToClose?: number,
+  slotLabels?: string[]
 ): Promise<string> => {
   let code: string;
   let exists: boolean;
-  
-  // Generate unique code
+
   do {
     code = generateGroupCode();
     exists = await checkGroupCodeExists(code);
   } while (exists);
 
-  // Ensure user profile exists and get their display name
   const userProfile = await ensureUserProfile(user);
-  const displayName = userProfile.displayName || user.displayName || 'Anonymous';
+  const creatorDisplayName = userProfile.displayName || user.displayName || 'Anonymous';
 
   const days = votingDurationDays ?? 7;
   const closesAt = Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
+
+  let maxParticipants = Math.max(2, Math.min(100, expectedCount || 50));
+  if (slotLabels && slotLabels.length > 0 && slotLabels.length > maxParticipants) {
+    maxParticipants = Math.min(100, slotLabels.length);
+  }
+
+  let slots: GroupSlot[] | undefined;
+  if (slotLabels && slotLabels.length > 0) {
+    const padded: string[] = [];
+    for (let i = 0; i < maxParticipants; i++) {
+      padded.push((slotLabels[i] ?? '').trim() || `Person ${i + 1}`);
+    }
+    slots = padded.map((label, i) =>
+      i === 0
+        ? { label: label || 'You', userId: user.uid, displayName: creatorDisplayName }
+        : { label }
+    );
+  }
 
   const groupData: Omit<GroupSession, 'id'> = {
     name,
     description,
     code,
     createdBy: user.uid,
-    createdByDisplayName: displayName,
+    createdByDisplayName: creatorDisplayName,
     createdAt: serverTimestamp() as Timestamp,
     isActive: true,
     participants: [user.uid],
-    maxParticipants: maxParticipants || 50,
+    maxParticipants,
     votingClosesAt: closesAt,
+    ...(slots && { slots }),
     ...(minVotersToClose != null && minVotersToClose > 0 && { minVotersToClose }),
   };
 
@@ -177,13 +236,17 @@ export const closeGroupVoting = async (groupId: string): Promise<void> => {
   });
 };
 
-// Check if voting is closed (manual, time-based, or voter threshold)
+// Check if voting is closed (manual, time-based, voter threshold, or all slots claimed)
 export const isVotingClosed = (
   group: GroupSession,
   uniqueVoterCount: number,
   now: Date = new Date()
 ): boolean => {
   if (group.votingClosed) return true;
+  if (group.slots && group.slots.length > 0) {
+    const allClaimed = group.slots.every((s) => !!s.userId);
+    if (allClaimed) return true;
+  }
   if (group.votingClosesAt) {
     const ts = group.votingClosesAt as Timestamp;
     const closesAt = ts?.toDate ? ts.toDate() : new Date((ts as unknown as { seconds: number }).seconds * 1000);
@@ -216,28 +279,65 @@ export const getGroupByCode = async (code: string): Promise<GroupSession | null>
   return null;
 };
 
-// Join a group
-export const joinGroup = async (groupId: string, user: User): Promise<boolean> => {
+// Join a group (optionally with slot index and display name when group has slots)
+export const joinGroup = async (
+  groupId: string,
+  user: User,
+  options?: { slotIndex?: number; displayName?: string }
+): Promise<boolean> => {
   const group = await getGroupById(groupId);
   if (!group) return false;
-  
+
   if (group.participants.includes(user.uid)) {
     return true; // Already a member
   }
-  
-  if (group.maxParticipants && group.participants.length >= group.maxParticipants) {
+
+  const max = group.maxParticipants ?? 50;
+  if (group.participants.length >= max) {
     throw new Error('Group is full');
   }
-  
-  // Ensure user profile exists and refresh it with latest Firebase Auth data
+
   await ensureUserProfile(user);
   await refreshUserProfile(user);
-  
+
+  const slots = group.slots;
+  const slotIndex = options?.slotIndex;
+  const displayName = (options?.displayName ?? '').trim() || user.displayName || 'Someone';
+
+  if (slots && slots.length > 0) {
+    if (slotIndex == null || slotIndex < 0 || slotIndex >= slots.length) {
+      throw new Error('Please pick a name from the list');
+    }
+    const slot = slots[slotIndex];
+    if (slot.userId) {
+      throw new Error('That slot is already taken');
+    }
+    const newSlots = [...slots];
+    newSlots[slotIndex] = { ...slot, userId: user.uid, displayName };
+    const updatedParticipants = newSlots.filter((s): s is GroupSlot & { userId: string } => !!s.userId).map((s) => s.userId);
+    const participantDisplayNames = { ...(group.participantDisplayNames || {}) };
+    participantDisplayNames[user.uid] = displayName;
+    const isNowFull = updatedParticipants.length >= max;
+    await updateDoc(doc(db, 'groups', groupId), {
+      slots: newSlots,
+      participants: updatedParticipants,
+      participantDisplayNames,
+      ...(isNowFull && { votingClosed: true }),
+    });
+    await migrateSlotRatingsToUser(groupId, slotIndex, user.uid, displayName, () => user.getIdToken());
+    return true;
+  }
+
   const updatedParticipants = [...group.participants, user.uid];
-  await updateDoc(doc(db, 'groups', groupId), {
-    participants: updatedParticipants
-  });
-  
+  const isNowFull = updatedParticipants.length >= max;
+  const updateData: { participants: string[]; participantDisplayNames?: Record<string, string>; votingClosed?: boolean } = {
+    participants: updatedParticipants,
+    ...(isNowFull && { votingClosed: true }),
+  };
+  if (displayName && displayName !== (user.displayName || 'Someone')) {
+    updateData.participantDisplayNames = { ...(group.participantDisplayNames || {}), [user.uid]: displayName };
+  }
+  await updateDoc(doc(db, 'groups', groupId), updateData);
   return true;
 };
 
@@ -286,7 +386,11 @@ export const createUserProfile = async (user: User): Promise<void> => {
     pointsToGive: 10000,
     createdAt: serverTimestamp() as Timestamp,
     groupsJoined: [],
-    emailNotifications: true
+    emailNotifications: true,
+    showOnLeaderboard: true,
+    leaderboardAnonymous: false,
+    showOnGroupLeaderboard: true,
+    groupLeaderboardAnonymous: false,
   };
 
   const userRef = doc(db, 'users', user.uid);

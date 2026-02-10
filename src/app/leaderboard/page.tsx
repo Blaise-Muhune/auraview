@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useSearchParams } from "next/navigation";
@@ -35,6 +35,20 @@ const FAMOUS_SORT_OPTIONS = [
   { value: 'reputation', label: 'Reputation' },
   { value: 'impact', label: 'Impact' },
 ] as const;
+
+/** Same score = same rank; next distinct score gets next rank (e.g. 1, 2, 2, 4). */
+function getDisplayRanks<T>(sortedList: T[], getScore: (item: T) => number): number[] {
+  const ranks: number[] = [];
+  for (let i = 0; i < sortedList.length; i++) {
+    if (i === 0) ranks.push(1);
+    else {
+      const prev = getScore(sortedList[i - 1]);
+      const curr = getScore(sortedList[i]);
+      ranks.push(prev === curr ? ranks[i - 1]! : i + 1);
+    }
+  }
+  return ranks;
+}
 
 interface TMDBPerson {
   id: number;
@@ -86,6 +100,13 @@ function LeaderboardContent() {
     }
   }, [searchParams]);
 
+  // Mark that user is on leaderboard so '/' can show landing when they click back
+  useEffect(() => {
+    if (!loading && !user && typeof window !== 'undefined') {
+      sessionStorage.setItem('aura_from_leaderboard', '1');
+    }
+  }, [loading, user]);
+
   useEffect(() => {
     if (loading) return;
     loadLeaderboardData();
@@ -97,31 +118,32 @@ function LeaderboardContent() {
     famousPeopleRef.current = famousPeople;
   }, [famousPeople]);
 
+  const getUserScore = useCallback((r: UserRanking) =>
+    sortBy === 'total' ? (r.totalAura ?? 0) : (r.questionTotals?.[sortBy] ?? 0), [sortBy]);
+  const userDisplayRanks = useMemo(() =>
+    getDisplayRanks(rankings, getUserScore), [rankings, getUserScore]);
+
   // Handle user search filtering
   useEffect(() => {
     setCurrentPage(1);
     if (userSearchQuery.trim()) {
-      const filtered = rankings.filter(r => 
+      const filtered = rankings.filter(r =>
         r.displayName.toLowerCase().includes(userSearchQuery.toLowerCase())
       );
-      
       setFilteredRankings(filtered);
-      
-      // Update current user rank in filtered results
-      if (user) {
-        const userRank = filtered.findIndex(ranking => ranking.userId === user.uid);
-        setCurrentUserRank(userRank >= 0 ? userRank + 1 : null);
-      }
     } else {
       setFilteredRankings(rankings);
-      
-      // Update current user rank in full results
-      if (user) {
-        const userRank = rankings.findIndex(ranking => ranking.userId === user.uid);
-        setCurrentUserRank(userRank >= 0 ? userRank + 1 : null);
-      }
     }
-  }, [userSearchQuery, rankings, user]);
+  }, [userSearchQuery, rankings]);
+
+  useEffect(() => {
+    if (user && rankings.length > 0) {
+      const idx = rankings.findIndex(r => r.userId === user.uid);
+      setCurrentUserRank(idx >= 0 ? userDisplayRanks[idx]! : null);
+    } else {
+      setCurrentUserRank(null);
+    }
+  }, [user, rankings, userDisplayRanks]);
 
   // Sort famous people when famousSortBy changes
   useEffect(() => {
@@ -135,6 +157,11 @@ function LeaderboardContent() {
       return sorted;
     });
   }, [famousSortBy]);
+
+  const rankedFamous = useMemo(() => filteredFamousPeople.filter(f => !f.isUnrated), [filteredFamousPeople]);
+  const getFamousScore = useCallback((fp: FamousPerson) =>
+    famousSortBy === 'total' ? fp.totalAura : (fp.questionTotals?.[famousSortBy] ?? 0), [famousSortBy]);
+  const famousDisplayRanks = useMemo(() => getDisplayRanks(rankedFamous, getFamousScore), [rankedFamous, getFamousScore]);
 
   const loadFamousPeople = async () => {
     if (!hasValidApiKey) return;
@@ -312,7 +339,7 @@ function LeaderboardContent() {
       <main className="max-w-2xl mx-auto px-5 py-10">
         {!user && (
           <div className="mb-6 p-4 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 text-center">
-            <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">Create groups, get rated by friends, and climb the rankings.</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">Share your link or create groups—get rated by friends, earn aura, and climb the rankings.</p>
             <Link href="/signup" className="inline-block px-5 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[13px] font-medium rounded-xl hover:opacity-90">
               Get started free
             </Link>
@@ -441,6 +468,12 @@ function LeaderboardContent() {
                     filteredRankings[0],
                     filteredRankings[2],
                   ];
+                  const rank1 = rankings.findIndex(r => r.userId === first.userId);
+                  const rank2 = rankings.findIndex(r => r.userId === second.userId);
+                  const rank3 = rankings.findIndex(r => r.userId === third.userId);
+                  const displayRank1 = rank1 >= 0 ? userDisplayRanks[rank1]! : 1;
+                  const displayRank2 = rank2 >= 0 ? userDisplayRanks[rank2]! : 2;
+                  const displayRank3 = rank3 >= 0 ? userDisplayRanks[rank3]! : 3;
                   const isUser1 = user && first.userId === user.uid;
                   const isUser2 = user && second.userId === user.uid;
                   const isUser3 = user && third.userId === user.uid;
@@ -482,9 +515,9 @@ function LeaderboardContent() {
                   return (
                     <div className="py-8 px-4 border-b border-gray-200 dark:border-gray-800">
                       <div className="flex items-end justify-center gap-1 sm:gap-3 max-w-sm mx-auto">
-                        <PodiumSlot r={second} isYou={!!isUser2} rank={2} bg="bg-gray-500 dark:bg-gray-600" bgFoot="bg-gray-600 dark:bg-gray-700" />
-                        <PodiumSlot r={first} isYou={!!isUser1} rank={1} bg="bg-amber-500 dark:bg-amber-600" bgFoot="bg-amber-600 dark:bg-amber-700" />
-                        <PodiumSlot r={third} isYou={!!isUser3} rank={3} bg="bg-amber-700 dark:bg-amber-800" bgFoot="bg-amber-800 dark:bg-amber-900" />
+                        <PodiumSlot r={second} isYou={!!isUser2} rank={displayRank2} bg="bg-gray-500 dark:bg-gray-600" bgFoot="bg-gray-600 dark:bg-gray-700" />
+                        <PodiumSlot r={first} isYou={!!isUser1} rank={displayRank1} bg="bg-amber-500 dark:bg-amber-600" bgFoot="bg-amber-600 dark:bg-amber-700" />
+                        <PodiumSlot r={third} isYou={!!isUser3} rank={displayRank3} bg="bg-amber-700 dark:bg-amber-800" bgFoot="bg-amber-800 dark:bg-amber-900" />
                       </div>
                     </div>
                   );
@@ -498,10 +531,8 @@ function LeaderboardContent() {
                       const start = (currentPage - 1) * RANKINGS_PER_PAGE;
                       const paginatedRankings = filteredRankings.slice(listStart).slice(start, start + RANKINGS_PER_PAGE);
                       return paginatedRankings.map((userRanking) => {
-                      const actualRank = rankings.findIndex(ranking => ranking.userId === userRanking.userId) + 1;
-                      if (actualRank === 0 && process.env.NODE_ENV === 'development') {
-                        console.warn('User not found in global rankings');
-                      }
+                      const idx = rankings.findIndex(ranking => ranking.userId === userRanking.userId);
+                      const actualRank = idx >= 0 ? userDisplayRanks[idx]! : 0;
                       const auraLevel = getAuraLevel(userRanking.totalAura ?? 0);
                       const isCurrentUser = user && userRanking.userId === user.uid;
 
@@ -682,9 +713,12 @@ function LeaderboardContent() {
                 <>
                   {/* Podium – top 3 famous people */}
                   {(() => {
-                    const top3Ranked = filteredFamousPeople.filter(f => !f.isUnrated).slice(0, 3);
+                    const top3Ranked = rankedFamous.slice(0, 3);
                     if (top3Ranked.length < 3) return null;
                     const [second, first, third] = [top3Ranked[1], top3Ranked[0], top3Ranked[2]];
+                    const displayRank1 = famousDisplayRanks[0] ?? 1;
+                    const displayRank2 = famousDisplayRanks[1] ?? 2;
+                    const displayRank3 = famousDisplayRanks[2] ?? 3;
                     const FamousPodiumSlot = ({ fp, rank, bg, bgFoot }: { fp: FamousPerson; rank: number; bg: string; bgFoot: string }) => {
                       const base = `/rate-famous/${fp.id}`;
                       const href = user ? `${base}?rank=${rank}` : `/login?redirect=${encodeURIComponent(base + '?rank=' + rank)}`;
@@ -720,9 +754,9 @@ function LeaderboardContent() {
                     return (
                       <div className="py-8 px-4 border-b border-gray-200 dark:border-gray-800">
                         <div className="flex items-end justify-center gap-1 sm:gap-3 max-w-sm mx-auto">
-                          <FamousPodiumSlot fp={second} rank={2} bg="bg-gray-500 dark:bg-gray-600" bgFoot="bg-gray-600 dark:bg-gray-700" />
-                          <FamousPodiumSlot fp={first} rank={1} bg="bg-amber-500 dark:bg-amber-600" bgFoot="bg-amber-600 dark:bg-amber-700" />
-                          <FamousPodiumSlot fp={third} rank={3} bg="bg-amber-700 dark:bg-amber-800" bgFoot="bg-amber-800 dark:bg-amber-900" />
+                          <FamousPodiumSlot fp={second} rank={displayRank2} bg="bg-gray-500 dark:bg-gray-600" bgFoot="bg-gray-600 dark:bg-gray-700" />
+                          <FamousPodiumSlot fp={first} rank={displayRank1} bg="bg-amber-500 dark:bg-amber-600" bgFoot="bg-amber-600 dark:bg-amber-700" />
+                          <FamousPodiumSlot fp={third} rank={displayRank3} bg="bg-amber-700 dark:bg-amber-800" bgFoot="bg-amber-800 dark:bg-amber-900" />
                         </div>
                       </div>
                     );
@@ -730,7 +764,7 @@ function LeaderboardContent() {
 
                   {/* List: famous people rank 4+ (or all if &lt; 3 ranked) */}
                   {(() => {
-                    const top3Ranked = filteredFamousPeople.filter(f => !f.isUnrated).slice(0, 3);
+                    const top3Ranked = rankedFamous.slice(0, 3);
                     const listStart = top3Ranked.length >= 3 ? 3 : 0;
                     const listPeople = listStart > 0
                       ? filteredFamousPeople.filter(f => !top3Ranked.some(t => t.id === f.id))
@@ -748,7 +782,8 @@ function LeaderboardContent() {
                       <>
                         <div className="divide-y divide-gray-100 dark:divide-gray-800">
                           {paginated.map((fp) => {
-                            const actualRank = fp.isUnrated ? -1 : (famousPeople.findIndex(f => f.id === fp.id) + 1);
+                            const rankIdx = fp.isUnrated ? -1 : rankedFamous.findIndex(f => f.id === fp.id);
+                            const actualRank = rankIdx >= 0 ? famousDisplayRanks[rankIdx]! : -1;
                             const auraLevel = getAuraLevel(fp.totalAura);
                             return (
                               <Link

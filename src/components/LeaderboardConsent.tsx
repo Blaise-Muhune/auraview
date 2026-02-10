@@ -8,57 +8,16 @@ const DEFAULT_CHOICE: Choice = { show: true, anonymous: false };
 
 interface LeaderboardConsentProps {
   displayName: string;
-  /** When true, show both group and global consent. When false, only global (e.g. direct rate). */
+  /** When true, one choice applies to both global leaderboard and group results (anonymous = anonymous everywhere, else visible everywhere). */
   includeGroupLeaderboard?: boolean;
-  onSave: (
-    global: Choice,
-    group?: Choice
-  ) => Promise<void>;
+  onSave: (choice: Choice) => Promise<void>;
   isLoading?: boolean;
 }
 
 const CHOICES: { show: boolean; anonymous: boolean; label: string }[] = [
   { show: true, anonymous: false, label: 'Show my name' },
   { show: true, anonymous: true, label: 'Anonymous' },
-  { show: false, anonymous: false, label: "Don't show me" },
 ];
-
-function ConsentSection({
-  title,
-  displayName,
-  choice,
-  onChoice,
-  disabled,
-}: {
-  title: string;
-  displayName: string;
-  choice: Choice;
-  onChoice: (c: Choice) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</h3>
-      <div className="flex flex-wrap gap-2">
-        {CHOICES.map((c) => (
-          <button
-            key={`${c.show}-${c.anonymous}`}
-            type="button"
-            onClick={() => onChoice(c)}
-            disabled={disabled}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
-              choice.show === c.show && choice.anonymous === c.anonymous
-                ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-          >
-            {c.label === 'Show my name' ? displayName || 'My name' : c.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function LeaderboardConsent({
   displayName,
@@ -66,57 +25,49 @@ export function LeaderboardConsent({
   onSave,
   isLoading,
 }: LeaderboardConsentProps) {
-  const [globalChoice, setGlobalChoice] = useState<Choice>(DEFAULT_CHOICE);
-  const [groupChoice, setGroupChoice] = useState<Choice>(DEFAULT_CHOICE);
-  const [useSameForBoth, setUseSameForBoth] = useState(true);
-
-  const effectiveGroupChoice = useSameForBoth ? globalChoice : groupChoice;
+  const [choice, setChoice] = useState<Choice>(DEFAULT_CHOICE);
 
   const handleContinue = async () => {
-    await onSave(globalChoice, includeGroupLeaderboard ? effectiveGroupChoice : undefined);
+    await onSave(choice);
   };
+
+  const title = includeGroupLeaderboard
+    ? 'How do you want to appear on leaderboards and group results?'
+    : 'How do you want to appear on the leaderboard?';
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
-          Leaderboard preferences
+          Visibility preference
         </h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          You can change this anytime in your profile.
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          {includeGroupLeaderboard
+            ? 'Your name is shown by default. Choose Anonymous to hide your name on leaderboards and group results.'
+            : 'Your name is shown by default. You can change this anytime in your profile.'}
         </p>
       </div>
 
-      <ConsentSection
-        title="Global leaderboard"
-        displayName={displayName}
-        choice={globalChoice}
-        onChoice={setGlobalChoice}
-        disabled={!!isLoading}
-      />
-
-      {includeGroupLeaderboard && (
-        <>
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={useSameForBoth}
-              onChange={(e) => setUseSameForBoth(e.target.checked)}
-              className="rounded border-gray-300 dark:border-gray-600"
-            />
-            Same for group results
-          </label>
-          {!useSameForBoth && (
-            <ConsentSection
-              title="Group results"
-              displayName={displayName}
-              choice={groupChoice}
-              onChoice={setGroupChoice}
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</h3>
+        <div className="flex flex-wrap gap-2">
+          {CHOICES.map((c) => (
+            <button
+              key={`${c.show}-${c.anonymous}`}
+              type="button"
+              onClick={() => setChoice(c)}
               disabled={!!isLoading}
-            />
-          )}
-        </>
-      )}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                choice.show === c.show && choice.anonymous === c.anonymous
+                  ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+            >
+              {c.label === 'Show my name' ? displayName || 'My name' : c.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <button
         type="button"

@@ -36,6 +36,9 @@ type ContactMessage = {
   message: string;
   read: boolean;
   createdAt: string | null;
+  userId?: string | null;
+  userEmail?: string | null;
+  userDisplayName?: string | null;
 };
 
 export default function AdminPage() {
@@ -50,7 +53,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/leaderboard');
       return;
     }
   }, [user, loading, router]);
@@ -377,6 +380,20 @@ export default function AdminPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
+                      {(msg.userDisplayName || msg.userEmail) && (
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-0.5">
+                          {msg.userDisplayName ?? 'Unknown'}
+                          {msg.userEmail && (
+                            <span className="text-gray-500 dark:text-gray-500">
+                              {' · '}
+                              <a href={`mailto:${msg.userEmail}`} className="hover:underline">{msg.userEmail}</a>
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {!msg.userDisplayName && !msg.userEmail && (
+                        <p className="text-sm text-gray-500 dark:text-gray-500 mb-0.5 italic">Unknown sender</p>
+                      )}
                       <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{msg.title}</p>
                       <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words">{msg.message}</p>
                       {msg.createdAt && (

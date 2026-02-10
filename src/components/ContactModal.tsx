@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface ContactModalProps {
   isOpen: boolean;
@@ -8,6 +9,7 @@ interface ContactModalProps {
 }
 
 export function ContactModal({ isOpen, onClose }: ContactModalProps) {
+  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -25,10 +27,11 @@ export function ContactModal({ isOpen, onClose }: ContactModalProps) {
     setError(null);
     setSubmitting(true);
     try {
+      const idToken = user ? await user.getIdToken() : undefined;
       const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: trimmedTitle, message: trimmedMessage }),
+        body: JSON.stringify({ title: trimmedTitle, message: trimmedMessage, idToken }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

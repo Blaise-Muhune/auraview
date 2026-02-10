@@ -106,15 +106,16 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
 
   const profileUrl = typeof window !== 'undefined' ? `${window.location.origin}/profile/${id}` : '';
   const isOwnProfile = user?.uid === profile.id;
+  const shareMessage = profileUrl ? `I'm on Aura — an app where friends rate each other and you see your "aura" score. Rate me or check my profile: ${profileUrl}` : '';
 
   const handleCopyLink = async () => {
-    if (!profileUrl) return;
+    if (!shareMessage) return;
     try {
-      await navigator.clipboard.writeText(profileUrl);
+      await navigator.clipboard.writeText(shareMessage);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError('Could not copy link');
+      setError('Could not copy');
     }
   };
 
@@ -160,19 +161,19 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
               <div className="flex flex-col items-center gap-4 text-center">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Share your profile</h3>
-                <p className="text-gray-600 dark:text-gray-400 text-sm">Post this link on Instagram, TikTok, or anywhere so friends can give you aura</p>
-                <div className="flex items-center gap-2 w-full max-w-md">
-                  <input
-                    type="text"
+                <p className="text-gray-600 dark:text-gray-400 text-sm">Copy the message below and paste it anywhere you share (Instagram, TikTok, group chat, etc.)</p>
+                <div className="flex flex-col gap-2 w-full max-w-md">
+                  <textarea
                     readOnly
-                    value={profileUrl}
-                    className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-sm truncate"
+                    rows={2}
+                    value={shareMessage}
+                    className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-sm resize-none"
                   />
                   <button
                     onClick={handleCopyLink}
                     className="flex-shrink-0 px-5 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:opacity-90 transition-colors text-[13px]"
                   >
-                    {copied ? 'Copied!' : 'Copy link'}
+                    {copied ? 'Copied!' : 'Copy message'}
                   </button>
                 </div>
               </div>

@@ -54,10 +54,8 @@ export default function ProfilePage() {
   const [socialLinkErrors, setSocialLinkErrors] = useState<(string | null)[]>([]);
   const [website, setWebsite] = useState('');
   const [emailNotifications, setEmailNotifications] = useState(true);
-  const [showOnLeaderboard, setShowOnLeaderboard] = useState<boolean | undefined>(undefined);
-  const [leaderboardAnonymous, setLeaderboardAnonymous] = useState(false);
-  const [showOnGroupLeaderboard, setShowOnGroupLeaderboard] = useState<boolean | undefined>(undefined);
-  const [groupLeaderboardAnonymous, setGroupLeaderboardAnonymous] = useState(false);
+  type VisibilityChoice = { show: boolean; anonymous: boolean };
+  const [visibilityChoice, setVisibilityChoice] = useState<VisibilityChoice>({ show: true, anonymous: false });
   const [hasPendingGroup, setHasPendingGroup] = useState(false);
 
   const loadProfile = useCallback(async () => {
@@ -71,10 +69,9 @@ export default function ProfilePage() {
       setSocialLinks(links.length ? links : ['']);
       setWebsite(h.website || '');
       setEmailNotifications(userProfile.emailNotifications !== false);
-      setShowOnLeaderboard(userProfile.showOnLeaderboard ?? true);
-      setLeaderboardAnonymous(userProfile.leaderboardAnonymous === true);
-      setShowOnGroupLeaderboard(userProfile.showOnGroupLeaderboard);
-      setGroupLeaderboardAnonymous(userProfile.groupLeaderboardAnonymous === true);
+      const wasHidden = userProfile.showOnLeaderboard === false || userProfile.showOnGroupLeaderboard === false;
+      const anon = userProfile.leaderboardAnonymous === true || userProfile.groupLeaderboardAnonymous === true || wasHidden;
+      setVisibilityChoice({ show: true, anonymous: anon });
     } catch {
       setError('Failed to load profile');
     } finally {
@@ -84,7 +81,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/leaderboard');
       return;
     }
     if (user) loadProfile();
@@ -138,10 +135,10 @@ export default function ProfilePage() {
       await updateUserProfile(user.uid, {
         socialHandles,
         emailNotifications,
-        showOnLeaderboard: showOnLeaderboard ?? true,
-        leaderboardAnonymous,
-        showOnGroupLeaderboard: showOnGroupLeaderboard ?? false,
-        groupLeaderboardAnonymous,
+        showOnLeaderboard: visibilityChoice.show,
+        leaderboardAnonymous: visibilityChoice.anonymous,
+        showOnGroupLeaderboard: visibilityChoice.show,
+        groupLeaderboardAnonymous: visibilityChoice.anonymous,
       });
       setSuccess('Saved!');
       const pendingCode = typeof window !== 'undefined' ? localStorage.getItem('pendingGroupCode') : null;
@@ -340,87 +337,29 @@ export default function ProfilePage() {
             </button>
           </label>
 
-          <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Show on global leaderboard</span>
+          <div className="space-y-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Leaderboard & group results visibility</span>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Default is to show your name. Choose Anonymous to hide your name on leaderboards and group results.</p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { show: true, anonymous: false, label: 'Show my name' },
+                { show: true, anonymous: true, label: 'Anonymous' },
+              ].map((c) => (
                 <button
+                  key={`${c.show}-${c.anonymous}`}
                   type="button"
-                  role="switch"
-                  aria-checked={showOnLeaderboard}
-                  onClick={() => setShowOnLeaderboard(!showOnLeaderboard)}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                    showOnLeaderboard ? 'bg-gray-900 dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
+                  onClick={() => setVisibilityChoice(c)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    visibilityChoice.show === c.show && visibilityChoice.anonymous === c.anonymous
+                      ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                   }`}
                 >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow transition-transform ${
-                      showOnLeaderboard ? 'translate-x-5' : 'translate-x-1'
-                    }`}
-                  />
+                  {c.label === 'Show my name' ? (user?.displayName || 'My name') : c.label}
                 </button>
-              </label>
-          <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Show as anonymous on global leaderboard</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={leaderboardAnonymous}
-              onClick={() => {
-                const next = !leaderboardAnonymous;
-                setLeaderboardAnonymous(next);
-                if (next) setShowOnLeaderboard(true);
-              }}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                leaderboardAnonymous ? 'bg-gray-900 dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow transition-transform ${
-                  leaderboardAnonymous ? 'translate-x-5' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </label>
-
-          <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Show on group results</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showOnGroupLeaderboard}
-              onClick={() => setShowOnGroupLeaderboard(!showOnGroupLeaderboard)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                showOnGroupLeaderboard ? 'bg-gray-900 dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow transition-transform ${
-                  showOnGroupLeaderboard ? 'translate-x-5' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </label>
-          <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Show as anonymous on group results</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={groupLeaderboardAnonymous}
-              onClick={() => {
-                const next = !groupLeaderboardAnonymous;
-                setGroupLeaderboardAnonymous(next);
-                if (next) setShowOnGroupLeaderboard(true);
-              }}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                groupLeaderboardAnonymous ? 'bg-gray-900 dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow transition-transform ${
-                  groupLeaderboardAnonymous ? 'translate-x-5' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </label>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-8 flex gap-3">

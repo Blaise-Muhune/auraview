@@ -48,6 +48,9 @@ export async function POST(request: Request) {
         message: data.message || '',
         read: data.read === true,
         createdAt: sec ? new Date(sec * 1000).toISOString() : null,
+        userId: data.userId ?? null,
+        userEmail: data.userEmail ?? null,
+        userDisplayName: data.userDisplayName ?? null,
       };
     });
 

@@ -7,7 +7,7 @@ import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { use } from "react";
-import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, getUserProfile, updateUserProfile } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, GroupSlot, getUserProfile, updateUserProfile, getSlotId, isSlotId } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
 import { sendNotification } from "@/lib/notify";
 import { LeaderboardConsent } from "@/components/LeaderboardConsent";
@@ -87,7 +87,7 @@ export default function RatePage({ params }: RatePageProps) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/leaderboard');
       return;
     }
 
@@ -121,7 +121,12 @@ export default function RatePage({ params }: RatePageProps) {
   // Set initial participant index to first unrated when data loads; redirect to results if all rated
   useEffect(() => {
     if (!group || !user) return;
-    const participantsToRate = group.participants.filter((p) => p !== user.uid);
+    const participantsToRate =
+      group.slots && group.slots.length > 0
+        ? group.slots
+            .map((s: GroupSlot, i: number) => (s.userId ? s.userId : getSlotId(group.id!, i)))
+            .filter((_: string, i: number) => group.slots![i]?.userId !== user.uid)
+        : group.participants.filter((p) => p !== user.uid);
     const firstUnratedIdx = participantsToRate.findIndex((p) => !alreadyRatedIds.has(p));
     if (firstUnratedIdx >= 0) {
       setCurrentParticipantIndex(firstUnratedIdx);
@@ -163,20 +168,31 @@ export default function RatePage({ params }: RatePageProps) {
     const names: {[key: string]: string} = {};
     const photos: {[key: string]: string} = {};
 
-    for (const participantId of group.participants) {
-      try {
-        const userProfile = await getUserProfile(participantId);
-        if (userProfile) {
-          names[participantId] = userProfile.displayName;
-          if (userProfile.photoURL) photos[participantId] = userProfile.photoURL;
-        } else {
-          names[participantId] = 'Anonymous User';
+    const idsToLoad =
+      group.slots && group.slots.length > 0
+        ? group.slots.map((s, i) => (s.userId ? s.userId : getSlotId(group.id!, i)))
+        : group.participants;
+
+    for (const participantId of idsToLoad) {
+      if (isSlotId(participantId)) {
+        const match = participantId.match(/^slot:[^:]+:(\d+)$/);
+        const slotIndex = match ? parseInt(match[1], 10) : -1;
+        const slot = group.slots?.[slotIndex];
+        names[participantId] = slot?.displayName ?? slot?.label ?? 'Unknown';
+      } else {
+        const fromGroup =
+          group.participantDisplayNames?.[participantId] ??
+          group.slots?.find((s) => s.userId === participantId)?.displayName;
+        try {
+          const userProfile = await getUserProfile(participantId);
+          if (userProfile?.photoURL) photos[participantId] = userProfile.photoURL;
+          names[participantId] = fromGroup ?? userProfile?.displayName ?? 'Anonymous User';
+        } catch (err) {
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Failed to load profile:', err);
+          }
+          names[participantId] = fromGroup ?? 'Anonymous User';
         }
-      } catch (err) {
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Failed to load profile:', err);
-        }
-        names[participantId] = 'Anonymous User';
       }
     }
 
@@ -311,11 +327,11 @@ export default function RatePage({ params }: RatePageProps) {
       });
       
       await Promise.all(ratingPromises);
-      // Notify recipients (non-blocking)
+      // Notify recipients (non-blocking) - skip slot placeholders (no user to notify)
       const fromName = user.displayName || 'Someone';
       const token = await user.getIdToken();
       Object.entries(participantRatings).forEach(([participantId, points]) => {
-        if (points !== 0 && participantId !== user.uid) {
+        if (points !== 0 && participantId !== user.uid && !isSlotId(participantId)) {
           sendNotification(participantId, 'rating_received', {
             fromUserDisplayName: fromName,
             points: String(points),
@@ -383,17 +399,15 @@ export default function RatePage({ params }: RatePageProps) {
             <LeaderboardConsent
               displayName={user.displayName || 'Your name'}
               includeGroupLeaderboard
-              onSave={async (global, groupChoice) => {
+              onSave={async (choice) => {
                 if (!user) return;
                 setConsentSaving(true);
                 try {
                   await updateUserProfile(user.uid, {
-                    showOnLeaderboard: global.show,
-                    leaderboardAnonymous: global.anonymous,
-                    ...(groupChoice && {
-                      showOnGroupLeaderboard: groupChoice.show,
-                      groupLeaderboardAnonymous: groupChoice.anonymous,
-                    }),
+                    showOnLeaderboard: choice.show,
+                    leaderboardAnonymous: choice.anonymous,
+                    showOnGroupLeaderboard: choice.show,
+                    groupLeaderboardAnonymous: choice.anonymous,
                   });
                   setShowLeaderboardConsent(false);
                   router.push(`/group/${group.id}/results`);
@@ -411,7 +425,12 @@ export default function RatePage({ params }: RatePageProps) {
 
   const uniqueVoters = new Set(groupRatings.map((r: { fromUserId: string }) => r.fromUserId)).size;
   const votingClosed = isVotingClosed(group, uniqueVoters);
-  const participants = group.participants.filter(pid => pid !== user.uid);
+  const participants =
+    group.slots && group.slots.length > 0
+      ? group.slots
+          .map((s, i) => (s.userId ? s.userId : getSlotId(group.id!, i)))
+          .filter((_, i) => group.slots![i]?.userId !== user.uid)
+      : group.participants.filter((pid) => pid !== user.uid);
 
   if (votingClosed) {
     return (
@@ -454,11 +473,17 @@ export default function RatePage({ params }: RatePageProps) {
             {dropdownOpen && (
               <div className="absolute right-0 top-full mt-1 py-1 w-32 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-10">
                 <Link
-                  href={currentStep === 0 && participants[currentParticipantIndex] ? `/profile/${participants[currentParticipantIndex]}` : `/group/${group.id}/results`}
+                  href={
+                    currentStep === 0 && participants[currentParticipantIndex] && !isSlotId(participants[currentParticipantIndex])
+                      ? `/profile/${participants[currentParticipantIndex]}`
+                      : `/group/${group.id}/results`
+                  }
                   onClick={() => setDropdownOpen(false)}
                   className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
-                  {currentStep === 0 ? 'Profile' : 'Results'}
+                  {currentStep === 0 && participants[currentParticipantIndex] && !isSlotId(participants[currentParticipantIndex])
+                    ? 'Profile'
+                    : 'Results'}
                 </Link>
               </div>
             )}

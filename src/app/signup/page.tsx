@@ -13,24 +13,29 @@ function SignupContent() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Store group code from URL so we can redirect after signup
+  // Store group code from URL only when present in this page's URL
   useEffect(() => {
     const code = searchParams.get('code');
     if (code) {
       localStorage.setItem('pendingGroupCode', code.toUpperCase());
+    } else if (typeof window !== 'undefined') {
+      localStorage.removeItem('pendingGroupCode');
     }
   }, [searchParams]);
 
   useEffect(() => {
     if (user && !loading) {
-      const pendingGroupCode = localStorage.getItem('pendingGroupCode');
-      if (pendingGroupCode) {
-        router.push(`/join-group?code=${pendingGroupCode}`);
+      // Only redirect to join-group if they came to signup WITH a code in the link this time
+      const codeInUrl = searchParams.get('code');
+      if (codeInUrl) {
+        const code = codeInUrl.toUpperCase();
+        localStorage.removeItem('pendingGroupCode');
+        router.push(`/join-group?code=${code}`);
       } else {
         router.push('/dashboard');
       }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, searchParams]);
 
   const handleGoogleSignIn = async () => {
     setIsSigningIn(true);

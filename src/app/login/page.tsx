@@ -14,12 +14,15 @@ function LoginContent() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Store group code and redirect URL from query params
+  // Store group code and redirect URL from query params (only when present in this page's URL)
   useEffect(() => {
     const code = searchParams.get('code');
     const redirect = searchParams.get('redirect');
     if (code) {
       localStorage.setItem('pendingGroupCode', code.toUpperCase());
+    } else if (typeof window !== 'undefined') {
+      // No code in URL this time — clear any stale code so returning users go to dashboard
+      localStorage.removeItem('pendingGroupCode');
     }
     if (redirect && redirect.startsWith('/') && !redirect.startsWith('//')) {
       sessionStorage.setItem('loginRedirect', redirect);
@@ -31,10 +34,13 @@ function LoginContent() {
       const checkRedirect = async () => {
         try {
           await ensureUserProfile(user);
-          const pendingGroupCode = localStorage.getItem('pendingGroupCode');
+          const codeInUrl = searchParams.get('code');
           const loginRedirect = sessionStorage.getItem('loginRedirect');
-          if (pendingGroupCode) {
-            router.push(`/join-group?code=${pendingGroupCode}`);
+          // Only redirect to join-group if they came to login WITH a code in the link this time
+          if (codeInUrl) {
+            const code = codeInUrl.toUpperCase();
+            localStorage.removeItem('pendingGroupCode');
+            router.push(`/join-group?code=${code}`);
           } else if (loginRedirect) {
             sessionStorage.removeItem('loginRedirect');
             router.push(loginRedirect);
@@ -47,7 +53,7 @@ function LoginContent() {
       };
       checkRedirect();
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, searchParams]);
 
   const handleGoogleSignIn = async () => {
     setIsSigningIn(true);

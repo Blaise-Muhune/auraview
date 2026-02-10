@@ -154,7 +154,8 @@ export default function RateUserPage({ params }: RateUserPageProps) {
       setSuccess('Appreciation shared!');
 
       const profile = await getUserProfile(user.uid);
-      if (profile?.showOnLeaderboard === undefined) {
+      const needsConsent = profile?.showOnLeaderboard === undefined || profile?.showOnGroupLeaderboard === undefined;
+      if (needsConsent) {
         setShowLeaderboardConsent(true);
       } else {
         setTimeout(() => router.push('/leaderboard'), 1500);
@@ -203,13 +204,16 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           <div className="border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <LeaderboardConsent
               displayName={user.displayName || 'Your name'}
-              onSave={async (global) => {
+              includeGroupLeaderboard
+              onSave={async (choice) => {
                 if (!user) return;
                 setConsentSaving(true);
                 try {
                   await updateUserProfile(user.uid, {
-                    showOnLeaderboard: global.show,
-                    leaderboardAnonymous: global.anonymous,
+                    showOnLeaderboard: choice.show,
+                    leaderboardAnonymous: choice.anonymous,
+                    showOnGroupLeaderboard: choice.show,
+                    groupLeaderboardAnonymous: choice.anonymous,
                   });
                   setShowLeaderboardConsent(false);
                   router.push('/leaderboard');

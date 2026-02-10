@@ -21,7 +21,7 @@ export default function Dashboard() {
   const [avatarError, setAvatarError] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) router.push('/login');
+    if (!loading && !user) router.push('/leaderboard');
     if (user) loadUserStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadUserStats runs on mount/auth change
   }, [user, loading, router]);
@@ -73,8 +73,23 @@ export default function Dashboard() {
           <span className="font-mono text-xl font-semibold text-gray-900 dark:text-gray-100">{totalAura.toLocaleString()}</span>
         </div>
 
-        {/* Primary choice: create/join group OR share link */}
+        {/* Primary choice: share link OR create/join group */}
         <div className="space-y-3 mb-8">
+          <Link href={`/profile/${user.uid}`} className="flex items-center gap-3 p-4 border-2 border-amber-500/50 dark:border-amber-400/50 rounded-xl bg-amber-50/50 dark:bg-amber-900/10 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
+            {user.photoURL && !avatarError ? (
+              <Image src={user.photoURL} alt="" width={40} height={40} className="w-10 h-10 rounded-full object-cover shrink-0" unoptimized onError={() => setAvatarError(true)} />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm font-medium">
+                {(user.displayName || '?').charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <span className="font-medium text-gray-900 dark:text-gray-100">Share your link to get rated</span>
+              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{user.displayName || 'User'}</p>
+            </div>
+            <span className="text-amber-600 dark:text-amber-400 font-medium text-sm shrink-0">Get rated →</span>
+          </Link>
+          <p className="text-center text-xs text-gray-400 dark:text-gray-500">or</p>
           <div className="grid grid-cols-2 gap-3">
             <Link href="/create-group" className="flex gap-3 p-4 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
               <span className="text-gray-500 dark:text-gray-400 mt-0.5"><Plus /></span>
@@ -91,21 +106,6 @@ export default function Dashboard() {
               </div>
             </Link>
           </div>
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500">or</p>
-          <Link href={`/profile/${user.uid}`} className="flex items-center gap-3 p-4 border-2 border-amber-500/50 dark:border-amber-400/50 rounded-xl bg-amber-50/50 dark:bg-amber-900/10 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
-            {user.photoURL && !avatarError ? (
-              <Image src={user.photoURL} alt="" width={40} height={40} className="w-10 h-10 rounded-full object-cover shrink-0" unoptimized onError={() => setAvatarError(true)} />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm font-medium">
-                {(user.displayName || '?').charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <span className="font-medium text-gray-900 dark:text-gray-100">Share your link to get rated</span>
-              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{user.displayName || 'User'}</p>
-            </div>
-            <span className="text-amber-600 dark:text-amber-400 font-medium text-sm shrink-0">Get rated →</span>
-          </Link>
         </div>
 
         {/* Secondary: the rest */}
@@ -121,12 +121,11 @@ export default function Dashboard() {
               My groups
             </Link>
           </div>
-          <div className="flex gap-3">
-            <Link href="/profile" className="flex-1 py-2.5 text-center text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/profile" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
               Edit profile
             </Link>
-            <span className="text-gray-300 dark:text-gray-700">·</span>
-            <span className="flex-1 py-2.5 text-center text-sm text-gray-500 dark:text-gray-400">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
               {groupsCount} groups · {ratersCount} rated by
             </span>
           </div>
