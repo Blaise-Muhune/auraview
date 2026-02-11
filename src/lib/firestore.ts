@@ -12,10 +12,14 @@ import {
   serverTimestamp,
   Timestamp,
   setDoc,
-  documentId
+  documentId,
+  limit,
+  startAfter
 } from 'firebase/firestore';
-import { db } from './firebase';
+import type { DocumentSnapshot } from 'firebase/firestore';
+import { db, storage } from './firebase';
 import { User } from 'firebase/auth';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // Types
 /** One slot: optional label from creator; when claimed, userId and displayName (joiner can modify label) */
@@ -84,6 +88,8 @@ export interface UserProfile {
   showOnGroupLeaderboard?: boolean;
   /** When on group leaderboard, show as anonymous (only applies if showOnGroupLeaderboard is true) */
   groupLeaderboardAnonymous?: boolean;
+  /** Aura received from feed post reactions (added to profile/leaderboard total) */
+  feedAuraTotal?: number;
 }
 
 export interface Rating {
@@ -122,6 +128,31 @@ export interface FamousPerson {
   averageRating: number;
   questionTotals?: { [key: string]: number };
   isUnrated?: boolean;
+}
+
+/** Feed post (author's update; others can add aura) */
+export interface FeedPost {
+  id: string;
+  authorId: string;
+  authorDisplayName: string;
+  authorPhotoURL?: string;
+  content: string;
+  createdAt: Timestamp;
+  /** Sum of aura points given to this post (updated by API when someone gives aura) */
+  totalAuraCount?: number;
+  /** Up to 4 image URLs attached to the post */
+  imageUrls?: string[];
+}
+
+/** Aura given by a user to a feed post; adds to author's total. One per (post, user). */
+export interface FeedAura {
+  id: string;
+  postId: string;
+  fromUserId: string;
+  fromUserDisplayName: string;
+  toUserId: string;
+  points: number;
+  createdAt: Timestamp;
 }
 
 // Synthetic ID for unclaimed slot (used in ratings until someone joins)
@@ -457,6 +488,138 @@ export const ensureUserProfile = async (user: User): Promise<UserProfile> => {
   return newProfile;
 };
 
+// --- Feed ---
+const FEED_POSTS = 'feedPosts';
+const FEED_AURA = 'feedAura';
+const FEED_PAGE_SIZE = 20;
+export const FEED_CONTENT_MAX = 500;
+export const FEED_IMAGES_MAX = 4;
+
+/** Upload up to 4 images to Storage in parallel and return their download URLs. */
+export const uploadFeedImages = async (userId: string, files: File[]): Promise<string[]> => {
+  if (files.length === 0 || files.length > FEED_IMAGES_MAX) return [];
+  const prefix = `feed/${userId}/${Date.now()}`;
+  const uploads = files.map(async (file, i) => {
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'jpg';
+    const path = `${prefix}_${i}.${safeExt}`;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
+    return getDownloadURL(storageRef);
+  });
+  return Promise.all(uploads);
+};
+
+export const createFeedPost = async (
+  user: User,
+  content: string,
+  imageUrls: string[] = []
+): Promise<FeedPost> => {
+  const trimmed = content.trim().slice(0, FEED_CONTENT_MAX);
+  if (!trimmed && imageUrls.length === 0) throw new Error('Content or at least one image is required');
+  const profile = await getUserProfile(user.uid);
+  const authorDisplayName = profile?.displayName ?? user.displayName ?? 'Someone';
+  const docData: Record<string, unknown> = {
+    authorId: user.uid,
+    authorDisplayName,
+    authorPhotoURL: user.photoURL ?? profile?.photoURL ?? null,
+    content: trimmed || '',
+    createdAt: serverTimestamp(),
+  };
+  if (imageUrls.length > 0) {
+    docData.imageUrls = imageUrls.slice(0, FEED_IMAGES_MAX);
+  }
+  const docRef = await addDoc(collection(db, FEED_POSTS), docData);
+  const snap = await getDoc(docRef);
+  const data = snap.data();
+  const createdAt = data?.createdAt as Timestamp | undefined;
+  return {
+    id: snap.id,
+    authorId: user.uid,
+    authorDisplayName,
+    authorPhotoURL: user.photoURL ?? profile?.photoURL,
+    content: trimmed || '',
+    createdAt: createdAt ?? ({ seconds: Math.floor(Date.now() / 1000) } as Timestamp),
+    imageUrls: data?.imageUrls ?? [],
+  };
+};
+
+/** Fair algorithm: chronological only, newest first. No engagement-based sorting. */
+export const getFeedPosts = async (
+  pageSize: number = FEED_PAGE_SIZE,
+  after?: DocumentSnapshot
+): Promise<{ posts: FeedPost[]; lastDoc: DocumentSnapshot | null }> => {
+  const q = after
+    ? query(
+        collection(db, FEED_POSTS),
+        orderBy('createdAt', 'desc'),
+        startAfter(after),
+        limit(pageSize)
+      )
+    : query(
+        collection(db, FEED_POSTS),
+        orderBy('createdAt', 'desc'),
+        limit(pageSize)
+      );
+  const snap = await getDocs(q);
+  const posts = snap.docs.map((d) => {
+    const data = d.data();
+    const imageUrls = data.imageUrls;
+    return {
+      id: d.id,
+      authorId: data.authorId ?? '',
+      authorDisplayName: data.authorDisplayName ?? 'Someone',
+      authorPhotoURL: data.authorPhotoURL,
+      content: data.content ?? '',
+      createdAt: data.createdAt as Timestamp,
+      totalAuraCount: typeof data.totalAuraCount === 'number' ? data.totalAuraCount : 0,
+      imageUrls: Array.isArray(imageUrls) ? imageUrls.slice(0, FEED_IMAGES_MAX) : [],
+    } as FeedPost;
+  });
+  const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] ?? null : null;
+  return { posts, lastDoc };
+};
+
+/** Post IDs the user has already given aura to (for UI state). */
+export const getFeedAuraPostIdsByUser = async (userId: string): Promise<Set<string>> => {
+  const map = await getFeedAuraPointsByUser(userId);
+  return new Set(map.keys());
+};
+
+/** User's aura points per post (postId -> points), between FEED_AURA_MIN and FEED_AURA_MAX. */
+export const FEED_AURA_MIN = -100;
+export const FEED_AURA_MAX = 500;
+export const FEED_AURA_STEP = 100;
+
+export const getFeedAuraPointsByUser = async (userId: string): Promise<Map<string, number>> => {
+  const q = query(
+    collection(db, FEED_AURA),
+    where('fromUserId', '==', userId),
+    limit(500)
+  );
+  const snap = await getDocs(q);
+  const map = new Map<string, number>();
+  snap.docs.forEach((d) => {
+    const data = d.data() as { postId?: string; points?: number };
+    const postId = data.postId;
+    if (postId) {
+      const prev = map.get(postId) ?? 0;
+      map.set(postId, prev + (data.points ?? 0));
+    }
+  });
+  return map;
+};
+
+/** Total aura count per post (for display). Fetched client-side or could be stored on post. */
+export const getFeedAuraCountByPost = async (postId: string): Promise<number> => {
+  const q = query(
+    collection(db, FEED_AURA),
+    where('postId', '==', postId)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.reduce((sum, d) => sum + ((d.data() as { points?: number }).points ?? 0), 0);
+};
+
 // Refresh user profile from Firebase Auth data
 export const refreshUserProfile = async (user: User): Promise<void> => {
   try {
@@ -556,15 +719,16 @@ export const getGroupRatings = async (groupId: string): Promise<Rating[]> => {
 
 // Get user's total aura from ratings
 export const getUserTotalAura = async (userId: string): Promise<number> => {
-  const q = query(collection(db, 'ratings'), where('toUserId', '==', userId));
-  const querySnapshot = await getDocs(q);
-  
-  const totalPoints = querySnapshot.docs.reduce((sum, doc) => {
+  const [ratingsSnap, profile] = await Promise.all([
+    getDocs(query(collection(db, 'ratings'), where('toUserId', '==', userId))),
+    getUserProfile(userId),
+  ]);
+  const totalPoints = ratingsSnap.docs.reduce((sum, doc) => {
     const rating = doc.data() as Rating;
     return sum + rating.points;
   }, 0);
-  
-  return totalPoints + 500; // Base aura + received points
+  const feedAura = profile?.feedAuraTotal ?? 0;
+  return totalPoints + 500 + feedAura; // Base aura + ratings + feed aura
 };
 
 // Get user's remaining points to distribute

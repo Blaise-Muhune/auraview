@@ -111,12 +111,16 @@ export default function Dashboard() {
         {/* Secondary: the rest */}
         <div className="pt-6 border-t border-gray-200 dark:border-gray-800">
           <p className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">Quick links</p>
-          <div className="flex gap-3 mb-4">
-            <Link href="/leaderboard" className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[13px] font-medium hover:opacity-90 transition-colors">
+          <div className="flex flex-wrap gap-3 mb-4">
+            <Link href="/leaderboard" className="flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[13px] font-medium hover:opacity-90 transition-colors">
               <Chart />
               Global rankings
             </Link>
-            <Link href="/my-groups" className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <Link href="/feed" className="flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6m4 4h4m-4 0V4m0 4v4" /></svg>
+              Feed
+            </Link>
+            <Link href="/my-groups" className="flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
               <RectangleStack />
               My groups
             </Link>

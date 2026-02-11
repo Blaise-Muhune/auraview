@@ -29,15 +29,20 @@ async function computeLeaderboard(): Promise<{
 }> {
   const db = getAdminDb();
 
-  const [groupsSnap, ratingsSnap] = await Promise.all([
+  const [groupsSnap, ratingsSnap, feedPostsSnap] = await Promise.all([
     db.collection('groups').get(),
     db.collection('ratings').get(),
+    db.collection('feedPosts').get(),
   ]);
 
   const uniqueUserIds = new Set<string>();
   groupsSnap.docs.forEach((doc) => {
     const participants = (doc.data() as { participants?: string[] }).participants ?? [];
     participants.forEach((id: string) => uniqueUserIds.add(id));
+  });
+  feedPostsSnap.docs.forEach((doc) => {
+    const authorId = (doc.data() as { authorId?: string }).authorId;
+    if (authorId) uniqueUserIds.add(authorId);
   });
 
   const userStats = new Map<
@@ -94,7 +99,11 @@ async function computeLeaderboard(): Promise<{
           displayName?: string;
           showOnLeaderboard?: boolean;
           leaderboardAnonymous?: boolean;
+          feedAuraTotal?: number;
         };
+        if (data?.feedAuraTotal != null && data.feedAuraTotal > 0) {
+          stat.totalAura += data.feedAuraTotal;
+        }
         if (data?.showOnLeaderboard === false) {
           usersToExclude.add(userId);
         } else {
