@@ -28,19 +28,17 @@ export default function Dashboard() {
 
   const loadUserStats = async () => {
     if (!user) return;
-    try {
-      const [groups, raters, aura] = await Promise.all([
-        getUserGroups(user.uid),
-        getUserRatersCount(user.uid),
-        getUserTotalAura(user.uid)
-      ]);
-      setGroupsCount(groups.length);
-      setRatersCount(raters);
-      setTotalAura(aura);
-    } catch (err) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Failed to load user stats:', err);
-      }
+    const [groupsResult, ratersResult, auraResult] = await Promise.allSettled([
+      getUserGroups(user.uid),
+      getUserRatersCount(user.uid),
+      getUserTotalAura(user.uid)
+    ]);
+    if (groupsResult.status === 'fulfilled') setGroupsCount(groupsResult.value.length);
+    if (ratersResult.status === 'fulfilled') setRatersCount(ratersResult.value);
+    // Always set total aura from computed value (ratings + base 500 + feed); don't leave at default 500 if one call failed
+    if (auraResult.status === 'fulfilled') setTotalAura(auraResult.value);
+    else if (process.env.NODE_ENV === 'development' && auraResult.status === 'rejected') {
+      console.error('Failed to load total aura:', auraResult.reason);
     }
   };
 

@@ -12,6 +12,15 @@ import { sendNotification } from "@/lib/notify";
 import { Nav } from "@/components/Nav";
 import { LeaderboardConsent } from "@/components/LeaderboardConsent";
 
+const PENDING_RATING_KEY = 'aura_pending_direct_rating';
+
+interface PendingDirectRating {
+  targetId: string;
+  targetDisplayName: string;
+  totalPoints: number;
+  questionScores?: { [key: string]: number };
+}
+
 interface RateUserPageProps {
   params: Promise<{
     id: string;
@@ -64,31 +73,100 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     setProfileImageError(false);
   }, [targetUser?.id]);
 
+  // Load target user: when signed in use Firestore; when guest use public API
   useEffect(() => {
-    if (!loading && !user) {
-      router.push(`/login?redirect=${encodeURIComponent(`/rate-user/${id}`)}`);
-      return;
-    }
-    if (user && id) {
-      loadTargetUser();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadTargetUser runs on auth/id change
-  }, [user, loading, id, router]);
+    if (loading || !id) return;
 
-  const loadTargetUser = async () => {
+    const loadTargetUser = async () => {
+      try {
+        if (user) {
+          const userProfile = await getUserProfile(id);
+          if (!userProfile) {
+            setError('User not found. This user may not have created a profile yet.');
+            return;
+          }
+          setTargetUser(userProfile);
+        } else {
+          const res = await fetch(`/api/users/${id}/profile-public`);
+          if (!res.ok) {
+            if (res.status === 404) setError('User not found. This user may not have created a profile yet.');
+            else setError('Failed to load user profile. Please try again later.');
+            return;
+          }
+          const data = await res.json() as { id: string; displayName: string; photoURL: string | null };
+          setTargetUser({
+            id: data.id,
+            displayName: data.displayName,
+            photoURL: data.photoURL ?? '',
+            email: '',
+            baseAura: 0,
+            totalAura: 0,
+            pointsToGive: 0,
+            createdAt: {} as UserProfile['createdAt'],
+            groupsJoined: [],
+          } as UserProfile);
+        }
+      } catch {
+        setError('Failed to load user profile. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTargetUser();
+  }, [user, loading, id]);
+
+  // After login: submit any pending rating stored before sign-in
+  useEffect(() => {
+    if (!user || loading || !id) return;
     try {
-      const userProfile = await getUserProfile(id);
-      if (!userProfile) {
-        setError('User not found. This user may not have created a profile yet.');
+      const raw = typeof window !== 'undefined' ? sessionStorage.getItem(PENDING_RATING_KEY) : null;
+      if (!raw) return;
+      const pending = JSON.parse(raw) as PendingDirectRating;
+      if (pending.targetId !== id) return;
+      sessionStorage.removeItem(PENDING_RATING_KEY);
+      // Self-rate check
+      if (user.uid === id) {
+        setError('You cannot rate yourself.');
         return;
       }
-      setTargetUser(userProfile);
+      (async () => {
+        setIsSubmitting(true);
+        setError(null);
+        try {
+          await submitRating(
+            'direct',
+            user,
+            pending.targetId,
+            pending.targetDisplayName,
+            pending.totalPoints,
+            undefined,
+            undefined,
+            pending.questionScores && Object.keys(pending.questionScores).length > 0 ? pending.questionScores : undefined
+          );
+          const token = await user.getIdToken();
+          sendNotification(pending.targetId, 'rating_received', {
+            fromUserDisplayName: user.displayName || 'Someone',
+            points: String(pending.totalPoints),
+            groupName: 'a direct rating',
+          }, { token, fromUserId: user.uid });
+          setSuccess('Appreciation shared!');
+          const profile = await getUserProfile(user.uid);
+          const needsConsent = profile?.showOnLeaderboard === undefined || profile?.showOnGroupLeaderboard === undefined;
+          if (needsConsent) setShowLeaderboardConsent(true);
+          else setTimeout(() => router.push('/leaderboard'), 1500);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Failed to submit rating');
+        } finally {
+          setIsSubmitting(false);
+        }
+      })();
     } catch {
-      setError('Failed to load user profile. Please try again later.');
-    } finally {
-      setIsLoading(false);
+      sessionStorage.removeItem(PENDING_RATING_KEY);
     }
-  };
+    // Run only when user becomes available and we have the same id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loading, id]);
 
   const handleQuestionRating = (questionId: string, points: number) => {
     setRatings(prev => ({ ...prev, [questionId]: points }));
@@ -119,20 +197,33 @@ export default function RateUserPage({ params }: RateUserPageProps) {
   };
 
   const handleSubmit = async () => {
-    if (!user || !targetUser) return;
+    if (!targetUser) return;
 
     const totalPoints = getTotalGiven();
+    const questionScores: { [key: string]: number } = {};
+    auraQuestions.forEach((q) => {
+      const v = ratings[q.id] ?? 0;
+      if (v !== 0) questionScores[q.id] = v;
+    });
+
+    // Guest: save rating and redirect to sign-in; after login we submit from sessionStorage
+    if (!user) {
+      const pending: PendingDirectRating = {
+        targetId: targetUser.id,
+        targetDisplayName: targetUser.displayName || 'Anonymous User',
+        totalPoints,
+        questionScores: Object.keys(questionScores).length > 0 ? questionScores : undefined,
+      };
+      sessionStorage.setItem(PENDING_RATING_KEY, JSON.stringify(pending));
+      router.push(`/login?redirect=${encodeURIComponent(`/rate-user/${id}`)}`);
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
     setSuccess(null);
 
     try {
-      // Each person gets up to 10,000 points (±10,000). No global pool.
-      const questionScores: { [key: string]: number } = {};
-      auraQuestions.forEach((q) => {
-        const v = ratings[q.id] ?? 0;
-        if (v !== 0) questionScores[q.id] = v;
-      });
       await submitRating(
         'direct',
         user,
@@ -178,8 +269,6 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     );
   }
 
-  if (!user) return null;
-
   if (error || !targetUser) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
@@ -195,7 +284,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     );
   }
 
-  if (showLeaderboardConsent && success) {
+  if (showLeaderboardConsent && success && user) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
         <Nav showBack backHref="/leaderboard" />
@@ -229,7 +318,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     );
   }
 
-  if (user.uid === targetUser.id) {
+  if (user && user.uid === targetUser.id) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
         <Nav showBack backHref="/leaderboard" />
@@ -394,6 +483,11 @@ export default function RateUserPage({ params }: RateUserPageProps) {
                 You&apos;re submitting neutral (0) on all categories.
               </p>
             )}
+            {!user && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                You&apos;ll sign in with Google to submit your rating.
+              </p>
+            )}
             <button
               onClick={handleSubmit}
               disabled={isSubmitting}
@@ -404,8 +498,10 @@ export default function RateUserPage({ params }: RateUserPageProps) {
                   <div className="w-4 h-4 border-2 border-gray-100 dark:border-gray-500 border-t-transparent rounded-full animate-spin" />
                   Submitting...
                 </span>
-              ) : (
+              ) : user ? (
                 'Submit'
+              ) : (
+                'Sign in & submit'
               )}
             </button>
           </div>

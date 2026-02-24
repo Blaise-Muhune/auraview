@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useEffect, useState, useCallback } from "react";
 import { use } from "react";
-import { getUserProfile, UserProfile } from "@/lib/firestore";
+import { getUserProfile, getUserTotalAura, UserProfile } from "@/lib/firestore";
 
 const SOCIAL_NAMES: Record<string, string> = {
   instagram: 'Instagram',
@@ -42,6 +42,7 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
   const { user, loading } = useAuth();
   const { id } = use(params);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [totalAura, setTotalAura] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -56,6 +57,9 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
         return;
       }
       setProfile(userProfile);
+      // Load actual total aura (computed from ratings + base + feed), not the stored profile.totalAura
+      const total = await getUserTotalAura(id);
+      setTotalAura(total);
     } catch {
       setError(user ? 'Failed to load profile. Please try again later.' : 'Sign in to view this profile.');
     } finally {
@@ -150,7 +154,9 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
             <div className="text-center md:text-left">
               <h2 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">{profile.displayName || 'User'}</h2>
               <div className="inline-block p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-800">
-                <div className="text-3xl font-bold font-mono tabular-nums text-gray-900 dark:text-gray-100">{profile.totalAura.toLocaleString()}</div>
+                <div className="text-3xl font-bold font-mono tabular-nums text-gray-900 dark:text-gray-100">
+                  {(totalAura ?? profile.totalAura).toLocaleString()}
+                </div>
                 <div className="text-gray-600 dark:text-gray-400 text-sm">Total Aura</div>
               </div>
             </div>
