@@ -51,17 +51,49 @@ export default function ViewProfilePage({ params }: ViewProfilePageProps) {
   const loadProfile = useCallback(async () => {
     if (!id) return;
     try {
-      const userProfile = await getUserProfile(id);
-      if (!userProfile) {
-        setError('Profile not found. This user may not have created a profile yet.');
-        return;
+      if (user) {
+        // Signed-in: use Firestore (allowed by rules) and computed total aura
+        const userProfile = await getUserProfile(id);
+        if (!userProfile) {
+          setError('Profile not found. This user may not have created a profile yet.');
+          return;
+        }
+        setProfile(userProfile);
+        const total = await getUserTotalAura(id);
+        setTotalAura(total);
+      } else {
+        // Guest (e.g. friend who clicked shared link): load via API so we don't require auth
+        const res = await fetch(`/api/users/${id}/profile-public`);
+        if (!res.ok) {
+          if (res.status === 404) setError('Profile not found. This user may not have created a profile yet.');
+          else setError('Failed to load profile. Please try again later.');
+          return;
+        }
+        const data = await res.json() as {
+          id: string;
+          displayName: string;
+          photoURL: string | null;
+          totalAura: number;
+          socialHandles?: UserProfile['socialHandles'];
+          auraSources?: UserProfile['auraSources'];
+        };
+        setTotalAura(data.totalAura);
+        setProfile({
+          id: data.id,
+          displayName: data.displayName,
+          photoURL: data.photoURL ?? '',
+          email: '',
+          baseAura: 500,
+          totalAura: data.totalAura,
+          pointsToGive: 10000,
+          createdAt: {} as UserProfile['createdAt'],
+          groupsJoined: [],
+          socialHandles: data.socialHandles,
+          auraSources: data.auraSources,
+        } as UserProfile);
       }
-      setProfile(userProfile);
-      // Load actual total aura (computed from ratings + base + feed), not the stored profile.totalAura
-      const total = await getUserTotalAura(id);
-      setTotalAura(total);
     } catch {
-      setError(user ? 'Failed to load profile. Please try again later.' : 'Sign in to view this profile.');
+      setError(user ? 'Failed to load profile. Please try again later.' : 'Profile not found. Please try again.');
     } finally {
       setIsLoading(false);
     }
