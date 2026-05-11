@@ -30,6 +30,15 @@ export function Footer() {
             <Link href="/privacy" className="hover:text-gray-900 dark:hover:text-gray-200">
               Privacy
             </Link>
+            <a
+              href="https://buymeacoffee.com/zingo"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-gray-200"
+            >
+              <span aria-hidden>☕</span>
+              Support
+            </a>
         </div>
       </div>
       <ContactModal isOpen={contactOpen} onClose={() => setContactOpen(false)} />
