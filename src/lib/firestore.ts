@@ -691,6 +691,22 @@ export const submitRating = async (
   }
 };
 
+/** `groupId` used for leaderboard / profile direct ratings (must match `/api/ratings`). */
+export const DIRECT_RATING_GROUP_ID = 'direct';
+
+/** Whether the signed-in user has already submitted a direct (non-group) rating to this person. */
+export const hasUserRatedDirectly = async (fromUserId: string, toUserId: string): Promise<boolean> => {
+  const q = query(
+    collection(db, 'ratings'),
+    where('groupId', '==', DIRECT_RATING_GROUP_ID),
+    where('fromUserId', '==', fromUserId),
+    where('toUserId', '==', toUserId),
+    limit(1)
+  );
+  const snapshot = await getDocs(q);
+  return !snapshot.empty;
+};
+
 // Get participant IDs the current user has already rated in a group (persisted)
 export const getParticipantIdsRatedByUserInGroup = async (groupId: string, fromUserId: string): Promise<string[]> => {
   const q = query(

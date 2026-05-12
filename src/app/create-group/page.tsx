@@ -149,7 +149,7 @@ export default function CreateGroup() {
 
               <div>
                 <label htmlFor="memberNamesText" className="block text-gray-900 dark:text-gray-100 text-sm font-medium mb-2">
-                  Add names <span className="text-gray-500 dark:text-gray-400 font-normal">(optional but encouraged)</span>
+                  Add names <span className="text-gray-500 dark:text-gray-400 font-normal">(optional)</span>
                 </label>
                 <textarea
                   id="memberNamesText"
@@ -158,9 +158,24 @@ export default function CreateGroup() {
                   onChange={handleInputChange}
                   rows={4}
                   className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 resize-y text-sm"
-                  placeholder="One name per line or comma-separated&#10;e.g. Alice, Bob, Charlie"
+                  placeholder={'Your name first, then others — one per line or commas\ne.g. Jamie\nAlex, Sam'}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">When you add names, joiners will pick one and can edit it. Easier for group chats.</p>
+                <div className="mt-2 space-y-2 text-xs text-gray-500 dark:text-gray-400">
+                  <p>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">You are already in the group.</span>{' '}
+                    You do not need to add yourself as an extra person; &quot;Number of people&quot; already includes you.
+                  </p>
+                  <p>
+                    If you add names, the <span className="font-medium text-gray-700 dark:text-gray-300">first name is your slot</span>{' '}
+                    (the label for you as host). Put <span className="font-medium text-gray-700 dark:text-gray-300">your name on the first line</span>, then everyone else you expect—joiners pick an open slot and can tweak the label.
+                  </p>
+                  <p className="font-medium text-gray-700 dark:text-gray-300">How to type names</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    <li>Separate names with commas or new lines (or both).</li>
+                    <li>Extra spaces around commas are fine; each comma or line break starts the next name.</li>
+                    <li>If a name contains a comma (e.g. &quot;Lee, Chris&quot;), put that person on their own line instead of using a comma inside the name.</li>
+                  </ul>
+                </div>
               </div>
 
               {showAdvanced && (

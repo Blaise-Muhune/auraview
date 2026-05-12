@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { use } from "react";
-import { getUserProfile, submitRating, updateUserProfile, UserProfile } from "@/lib/firestore";
+import { getUserProfile, hasUserRatedDirectly, submitRating, updateUserProfile, UserProfile } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
 import { sendNotification } from "@/lib/notify";
 import { Nav } from "@/components/Nav";
@@ -43,7 +43,9 @@ export default function RateUserPage({ params }: RateUserPageProps) {
   const { id } = use(params);
   const [targetUser, setTargetUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [alreadyRatedDirect, setAlreadyRatedDirect] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showLeaderboardConsent, setShowLeaderboardConsent] = useState(false);
@@ -76,21 +78,36 @@ export default function RateUserPage({ params }: RateUserPageProps) {
   // Load target user: when signed in use Firestore; when guest use public API
   useEffect(() => {
     if (loading || !id) return;
+    setIsLoading(true);
 
     const loadTargetUser = async () => {
+      setProfileError(null);
+      setSubmitError(null);
+      setAlreadyRatedDirect(false);
       try {
         if (user) {
           const userProfile = await getUserProfile(id);
           if (!userProfile) {
-            setError('User not found. This user may not have created a profile yet.');
+            setProfileError('User not found. This user may not have created a profile yet.');
             return;
           }
           setTargetUser(userProfile);
+          if (user.uid !== id) {
+            const already = await hasUserRatedDirectly(user.uid, id);
+            if (already) {
+              setAlreadyRatedDirect(true);
+              try {
+                sessionStorage.removeItem(PENDING_RATING_KEY);
+              } catch {
+                // ignore
+              }
+            }
+          }
         } else {
           const res = await fetch(`/api/users/${id}/profile-public`);
           if (!res.ok) {
-            if (res.status === 404) setError('User not found. This user may not have created a profile yet.');
-            else setError('Failed to load user profile. Please try again later.');
+            if (res.status === 404) setProfileError('User not found. This user may not have created a profile yet.');
+            else setProfileError('Failed to load user profile. Please try again later.');
             return;
           }
           const data = await res.json() as { id: string; displayName: string; photoURL: string | null };
@@ -107,7 +124,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           } as UserProfile);
         }
       } catch {
-        setError('Failed to load user profile. Please try again later.');
+        setProfileError('Failed to load user profile. Please try again later.');
       } finally {
         setIsLoading(false);
       }
@@ -127,13 +144,24 @@ export default function RateUserPage({ params }: RateUserPageProps) {
       sessionStorage.removeItem(PENDING_RATING_KEY);
       // Self-rate check
       if (user.uid === id) {
-        setError('You cannot rate yourself.');
+        try {
+          sessionStorage.removeItem(PENDING_RATING_KEY);
+        } catch {
+          // ignore
+        }
         return;
       }
       (async () => {
         setIsSubmitting(true);
-        setError(null);
+        setSubmitError(null);
         try {
+          const dup = await hasUserRatedDirectly(user.uid, pending.targetId);
+          if (dup) {
+            setAlreadyRatedDirect(true);
+            const prof = await getUserProfile(pending.targetId);
+            if (prof) setTargetUser(prof);
+            return;
+          }
           await submitRating(
             'direct',
             user,
@@ -156,7 +184,12 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           if (needsConsent) setShowLeaderboardConsent(true);
           else setTimeout(() => router.push('/leaderboard'), 1500);
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to submit rating');
+          const msg = err instanceof Error ? err.message : 'Failed to submit rating';
+          if (msg.includes('Already rated')) {
+            setAlreadyRatedDirect(true);
+          } else {
+            setSubmitError(msg);
+          }
         } finally {
           setIsSubmitting(false);
         }
@@ -220,7 +253,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     }
 
     setIsSubmitting(true);
-    setError(null);
+    setSubmitError(null);
     setSuccess(null);
 
     try {
@@ -255,7 +288,12 @@ export default function RateUserPage({ params }: RateUserPageProps) {
       if (process.env.NODE_ENV === 'development') {
         console.error('Rating submission error:', err);
       }
-      setError(err instanceof Error ? err.message : 'Failed to submit rating');
+      const msg = err instanceof Error ? err.message : 'Failed to submit rating';
+      if (msg.includes('Already rated')) {
+        setAlreadyRatedDirect(true);
+      } else {
+        setSubmitError(msg);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -269,16 +307,47 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     );
   }
 
-  if (error || !targetUser) {
+  if (profileError || !targetUser) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
         <Nav showBack backHref="/leaderboard" />
         <main className="max-w-xl mx-auto px-5 py-10 text-center">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">User Not Found</h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{error || 'The user you are looking for does not exist.'}</p>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">{profileError || 'The user you are looking for does not exist.'}</p>
           <Link href="/leaderboard" className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-lg hover:opacity-90">
             Top auras
           </Link>
+        </main>
+      </div>
+    );
+  }
+
+  if (user && alreadyRatedDirect && targetUser) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref="/leaderboard" />
+        <main className="max-w-xl mx-auto px-5 py-10 text-center">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-2xl" aria-hidden>
+            ✓
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">You already rated {targetUser.displayName || 'this person'}</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">
+            Direct ratings are one per person. You can open their profile or go back to the leaderboard.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link
+              href={`/profile/${targetUser.id}`}
+              className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-lg hover:opacity-90"
+            >
+              View profile
+            </Link>
+            <Link
+              href="/leaderboard"
+              className="inline-block px-4 py-3 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900"
+            >
+              Top auras
+            </Link>
+          </div>
         </main>
       </div>
     );
@@ -409,7 +478,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
             />
           </div>
 
-          {error && <p className="mb-4 text-red-600 dark:text-red-400 text-sm text-center">{error}</p>}
+          {submitError && <p className="mb-4 text-red-600 dark:text-red-400 text-sm text-center">{submitError}</p>}
           {success && <p className="mb-4 text-green-600 dark:text-green-400 text-sm text-center">{success}</p>}
 
           {/* 5 rating categories */}

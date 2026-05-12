@@ -41,6 +41,23 @@ type ContactMessage = {
   userDisplayName?: string | null;
 };
 
+type AdminUserRow = {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  createdAt: string | null;
+  emailVerified: boolean;
+};
+
+const DEFAULT_BUILD_SUBJECT = 'New Aura build';
+const DEFAULT_BUILD_BODY = `Hi —
+
+We just shipped an update to Aura. Open the app to try it out.
+
+Thanks for being here.
+
+— Aura`;
+
 export default function AdminPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -50,6 +67,15 @@ export default function AdminPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [contactMessages, setContactMessages] = useState<ContactMessage[]>([]);
   const [contactLoading, setContactLoading] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [userSearch, setUserSearch] = useState('');
+  const [buildSubject, setBuildSubject] = useState(DEFAULT_BUILD_SUBJECT);
+  const [buildBody, setBuildBody] = useState(DEFAULT_BUILD_BODY);
+  const [sendingBuild, setSendingBuild] = useState(false);
+  const [sendBuildMessage, setSendBuildMessage] = useState<string | null>(null);
+  const [sendBuildError, setSendBuildError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -67,6 +93,7 @@ export default function AdminPage() {
     }
     loadStats();
     loadContactMessages();
+    loadAdminUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadStats depends on user, runs on mount
   }, [user, router]);
 
@@ -92,6 +119,30 @@ export default function AdminPage() {
       setStatsError(err instanceof Error ? err.message : 'Failed to load stats');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const loadAdminUsers = async () => {
+    if (!user) return;
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || 'Failed to load users');
+      }
+      const data = await res.json();
+      setAdminUsers((data as { users?: AdminUserRow[] }).users ?? []);
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to load users');
+    } finally {
+      setUsersLoading(false);
     }
   };
 
@@ -131,6 +182,48 @@ export default function AdminPage() {
       window.dispatchEvent(new Event('contact-count-updated'));
     } catch {
       // ignore
+    }
+  };
+
+  const sendBuildEmail = async () => {
+    if (!user) return;
+    const withEmail = adminUsers.filter((u) => u.email);
+    if (withEmail.length === 0) {
+      setSendBuildError('No users with an email address.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Send this email to ${withEmail.length} user(s) with addresses on file? They are BCC'd; mail is sent from Aura <${ADMIN_EMAIL}> via Gmail.`
+      )
+    ) {
+      return;
+    }
+    setSendingBuild(true);
+    setSendBuildError(null);
+    setSendBuildMessage(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/admin/send-build-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idToken: token,
+          subject: buildSubject.trim(),
+          text: buildBody,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error || 'Send failed');
+      }
+      const recipientCount = (data as { recipientCount?: number }).recipientCount ?? 0;
+      const batches = (data as { batches?: number }).batches ?? 0;
+      setSendBuildMessage(`Sent to ${recipientCount} recipient(s) in ${batches} batch(es).`);
+    } catch (err) {
+      setSendBuildError(err instanceof Error ? err.message : 'Send failed');
+    } finally {
+      setSendingBuild(false);
     }
   };
 
@@ -184,7 +277,7 @@ export default function AdminPage() {
             </p>
           </div>
           <button
-            onClick={() => { loadStats(); loadContactMessages(); }}
+            onClick={() => { loadStats(); loadContactMessages(); loadAdminUsers(); }}
             disabled={refreshing}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
@@ -212,6 +305,150 @@ export default function AdminPage() {
             {statsError}
           </div>
         )}
+
+        {/* Users + build email */}
+        <div className="mb-8 p-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Users</h2>
+            <button
+              type="button"
+              onClick={() => void loadAdminUsers()}
+              disabled={usersLoading}
+              className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-50"
+            >
+              {usersLoading ? 'Loading…' : 'Reload list'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mb-4">
+            Listed from Firebase Auth. To send mail from {ADMIN_EMAIL}, set{' '}
+            <code className="text-gray-700 dark:text-gray-400">GMAIL_APP_PASSWORD</code> (Google App Password) on the
+            server; optional <code className="text-gray-700 dark:text-gray-400">GMAIL_USER</code> defaults to this
+            address.
+          </p>
+          {usersError && (
+            <p className="text-sm text-red-600 dark:text-red-400 mb-4">{usersError}</p>
+          )}
+          {usersLoading && adminUsers.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading users…</p>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <input
+                  type="search"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Search by name, email, or UID…"
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 text-sm"
+                />
+                <p className="text-sm text-gray-600 dark:text-gray-400 shrink-0 self-center">
+                  {adminUsers.length} account(s) · {adminUsers.filter((u) => u.email).length} with email
+                </p>
+              </div>
+              <div className="max-h-72 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950/50">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                    <tr>
+                      <th className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Name</th>
+                      <th className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Email</th>
+                      <th className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 hidden sm:table-cell">UID</th>
+                      <th className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 hidden md:table-cell">Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminUsers
+                      .filter((u) => {
+                        const q = userSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          (u.email?.toLowerCase().includes(q) ?? false) ||
+                          (u.displayName?.toLowerCase().includes(q) ?? false) ||
+                          u.uid.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((u) => (
+                        <tr key={u.uid} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                          <td className="px-3 py-2 text-gray-900 dark:text-gray-100">
+                            {u.displayName || '—'}
+                            {!u.emailVerified && u.email && (
+                              <span className="ml-1 text-xs text-amber-600 dark:text-amber-500" title="Email not verified">
+                                (unverified)
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                            {u.email ? (
+                              <a href={`mailto:${u.email}`} className="hover:underline break-all">
+                                {u.email}
+                              </a>
+                            ) : (
+                              <span className="text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-500 font-mono hidden sm:table-cell break-all max-w-[8rem]">
+                            {u.uid}
+                          </td>
+                          <td className="px-3 py-2 text-gray-500 dark:text-gray-500 text-xs hidden md:table-cell whitespace-nowrap">
+                            {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Build announcement email</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mb-3">
+                  Plain text only. Recipients are BCC&apos;d in batches (max 400 per SMTP message). The same message is
+                  sent to every Firebase Auth user who has an email.
+                </p>
+                <label className="block mb-3">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Subject</span>
+                  <input
+                    type="text"
+                    value={buildSubject}
+                    onChange={(e) => setBuildSubject(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 text-sm"
+                    maxLength={200}
+                  />
+                </label>
+                <label className="block mb-4">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Message</span>
+                  <textarea
+                    value={buildBody}
+                    onChange={(e) => setBuildBody(e.target.value)}
+                    rows={8}
+                    className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 text-sm font-mono"
+                    maxLength={20000}
+                  />
+                </label>
+                {sendBuildError && (
+                  <p className="text-sm text-red-600 dark:text-red-400 mb-3">{sendBuildError}</p>
+                )}
+                {sendBuildMessage && (
+                  <p className="text-sm text-green-700 dark:text-green-400 mb-3">{sendBuildMessage}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void sendBuildEmail()}
+                  disabled={sendingBuild || adminUsers.filter((u) => u.email).length === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-colors"
+                >
+                  {sendingBuild ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 dark:border-gray-400 border-t-white dark:border-t-gray-900 rounded-full animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      Send to all with email ({adminUsers.filter((u) => u.email).length})
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         {stats && (
           <>

@@ -18,6 +18,15 @@ interface RatePageProps {
   }>;
 }
 
+function getParticipantsToRate(group: GroupSession, currentUserId: string): string[] {
+  if (group.slots && group.slots.length > 0) {
+    return group.slots
+      .map((s: GroupSlot, i: number) => (s.userId ? s.userId : getSlotId(group.id!, i)))
+      .filter((_: string, i: number) => group.slots![i]?.userId !== currentUserId);
+  }
+  return group.participants.filter((p) => p !== currentUserId);
+}
+
 export default function RatePage({ params }: RatePageProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -121,12 +130,7 @@ export default function RatePage({ params }: RatePageProps) {
   // Set initial participant index to first unrated when data loads; redirect to results if all rated
   useEffect(() => {
     if (!group || !user) return;
-    const participantsToRate =
-      group.slots && group.slots.length > 0
-        ? group.slots
-            .map((s: GroupSlot, i: number) => (s.userId ? s.userId : getSlotId(group.id!, i)))
-            .filter((_: string, i: number) => group.slots![i]?.userId !== user.uid)
-        : group.participants.filter((p) => p !== user.uid);
+    const participantsToRate = getParticipantsToRate(group, user.uid);
     const firstUnratedIdx = participantsToRate.findIndex((p) => !alreadyRatedIds.has(p));
     if (firstUnratedIdx >= 0) {
       setCurrentParticipantIndex(firstUnratedIdx);
@@ -149,9 +153,19 @@ export default function RatePage({ params }: RatePageProps) {
         setError('Group not found');
         return;
       }
+
+      const ratedSet = new Set(ratedIds);
+      const participantsToRate = getParticipantsToRate(groupData, user.uid);
+      const firstUnratedIdx = participantsToRate.findIndex((p) => !ratedSet.has(p));
+      if (participantsToRate.length > 0 && firstUnratedIdx === -1) {
+        router.replace(`/group/${groupData.id}/results`);
+        return;
+      }
+
       setGroup(groupData);
       setGroupRatings(ratingsData);
-      setAlreadyRatedIds(new Set(ratedIds));
+      setAlreadyRatedIds(ratedSet);
+      setCurrentParticipantIndex(firstUnratedIdx >= 0 ? firstUnratedIdx : 0);
     } catch (err) {
       if (process.env.NODE_ENV === 'development') {
         console.error('Failed to load group:', err);
@@ -425,12 +439,7 @@ export default function RatePage({ params }: RatePageProps) {
 
   const uniqueVoters = new Set(groupRatings.map((r: { fromUserId: string }) => r.fromUserId)).size;
   const votingClosed = isVotingClosed(group, uniqueVoters);
-  const participants =
-    group.slots && group.slots.length > 0
-      ? group.slots
-          .map((s, i) => (s.userId ? s.userId : getSlotId(group.id!, i)))
-          .filter((_, i) => group.slots![i]?.userId !== user.uid)
-      : group.participants.filter((pid) => pid !== user.uid);
+  const participants = getParticipantsToRate(group, user.uid);
 
   if (votingClosed) {
     return (

@@ -14,6 +14,7 @@ export default function MyGroupsPage() {
   const router = useRouter();
   const [groups, setGroups] = useState<GroupSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [groupsFetchError, setGroupsFetchError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [leavingGroupId, setLeavingGroupId] = useState<string | null>(null);
   const [closingGroupId, setClosingGroupId] = useState<string | null>(null);
@@ -23,16 +24,19 @@ export default function MyGroupsPage() {
   const [resultsLinkCopied, setResultsLinkCopied] = useState(false);
 
   const loadUserGroups = useCallback(async () => {
+    if (!user) return;
+    setIsLoading(true);
+    setGroupsFetchError(null);
     try {
       const testQuery = query(collection(db, 'groups'), limit(1));
       await getDocs(testQuery);
-      const userGroups = await getUserGroups(user!.uid);
+      const userGroups = await getUserGroups(user.uid);
       setGroups(userGroups);
-    } catch (error) {
+    } catch (err) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('Error loading user groups:', error);
+        console.error('Error loading user groups:', err);
       }
-      setError('Failed to load your groups');
+      setGroupsFetchError('Failed to load your groups.');
     } finally {
       setIsLoading(false);
     }
@@ -151,14 +155,27 @@ export default function MyGroupsPage() {
       <main className="max-w-xl mx-auto px-5 py-10">
         <header className="mb-10">
           <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">My Groups</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">{groups.length} {groups.length === 1 ? 'group' : 'groups'}</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
+            {groupsFetchError ? 'Could not load your list' : `${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`}
+          </p>
         </header>
 
         {error && (
           <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>
         )}
 
-        {groups.length === 0 ? (
+        {groupsFetchError ? (
+          <div className="rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/20 p-10 text-center">
+            <p className="text-red-700 dark:text-red-400 text-sm mb-6">{groupsFetchError}</p>
+            <button
+              type="button"
+              onClick={() => void loadUserGroups()}
+              className="inline-flex items-center justify-center px-5 py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium text-[13px] hover:opacity-90 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        ) : groups.length === 0 ? (
           <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 p-10 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
               <svg className="w-8 h-8 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
