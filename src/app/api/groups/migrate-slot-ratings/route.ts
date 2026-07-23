@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { FieldValue } from 'firebase-admin/firestore';
 import { hasAdminConfig, getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { logger } from '@/lib/logger';
 
@@ -57,16 +58,80 @@ export async function POST(request: Request) {
       .where('toUserId', '==', slotId)
       .get();
 
-    const batch = db.batch();
-    snapshot.docs.forEach((d) => {
-      batch.update(d.ref, { toUserId: userId, toUserDisplayName: displayName });
-    });
+    let migrated = 0;
+    let merged = 0;
 
-    if (!snapshot.empty) {
+    for (const slotDoc of snapshot.docs) {
+      const slotData = slotDoc.data() as {
+        fromUserId?: string;
+        fromUserDisplayName?: string;
+        points?: number;
+        reason?: string | null;
+        questionScores?: { [key: string]: number };
+      };
+      const fromUserId = slotData.fromUserId;
+      if (!fromUserId) {
+        await slotDoc.ref.delete();
+        continue;
+      }
+
+      // Rater somehow rated a slot they later claimed — drop invalid self-rating
+      if (fromUserId === userId) {
+        await slotDoc.ref.delete();
+        continue;
+      }
+
+      const existing = await db
+        .collection('ratings')
+        .where('fromUserId', '==', fromUserId)
+        .where('toUserId', '==', userId)
+        .limit(20)
+        .get();
+
+      if (existing.empty) {
+        // First time this rater → claimer: attach the real user to the slot vote
+        const updatePayload: Record<string, unknown> = {
+          toUserId: userId,
+          toUserDisplayName: displayName,
+          groupIds: FieldValue.arrayUnion(groupId),
+          lastGroupId: groupId,
+        };
+        await slotDoc.ref.update(updatePayload);
+        migrated += 1;
+        continue;
+      }
+
+      // Already rated this person (group or leaderboard): replace old vote with slot scores
+      const primary = existing.docs[0];
+      const questionScores = slotData.questionScores;
+      const updatePayload: Record<string, unknown> = {
+        points: typeof slotData.points === 'number' ? slotData.points : 0,
+        reason: typeof slotData.reason === 'string' ? slotData.reason : null,
+        toUserDisplayName: displayName,
+        fromUserDisplayName: slotData.fromUserDisplayName || 'Anonymous',
+        groupIds: FieldValue.arrayUnion(groupId),
+        lastGroupId: groupId,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (questionScores && typeof questionScores === 'object' && Object.keys(questionScores).length > 0) {
+        updatePayload.questionScores = questionScores;
+      } else {
+        updatePayload.questionScores = FieldValue.delete();
+      }
+
+      await primary.ref.update(updatePayload);
+
+      const batch = db.batch();
+      batch.delete(slotDoc.ref);
+      for (const extra of existing.docs.slice(1)) {
+        // Skip if somehow same as primary
+        if (extra.id !== primary.id) batch.delete(extra.ref);
+      }
       await batch.commit();
+      merged += 1;
     }
 
-    return NextResponse.json({ ok: true, migrated: snapshot.size });
+    return NextResponse.json({ ok: true, migrated, merged, total: snapshot.size });
   } catch (err) {
     logger.error('Migrate slot ratings error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

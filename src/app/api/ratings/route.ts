@@ -19,6 +19,12 @@ interface RatingBody {
   points: number;
   reason?: string;
   questionScores?: { [key: string]: number };
+  /** When true, overwrite an existing rating from this user to the target (any prior context). */
+  update?: boolean;
+}
+
+function isSlotTarget(toUserId: string): boolean {
+  return toUserId.startsWith('slot:');
 }
 
 export async function POST(request: Request) {
@@ -38,7 +44,7 @@ export async function POST(request: Request) {
     }
     const fromUserId = decodedToken.uid;
 
-    const { groupId, toUserId, toUserDisplayName, points, reason, questionScores } = body;
+    const { groupId, toUserId, toUserDisplayName, points, reason, questionScores, update } = body;
 
     if (!groupId || !toUserId || !toUserDisplayName || typeof points !== 'number') {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -61,7 +67,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Reason too long' }, { status: 400 });
     }
 
-    // Validate questionScores if provided
     let sanitizedQuestionScores: { [key: string]: number } | null = null;
     if (questionScores && typeof questionScores === 'object') {
       sanitizedQuestionScores = {};
@@ -74,8 +79,8 @@ export async function POST(request: Request) {
     }
 
     const db = getAdminDb();
-
     const isDirect = groupId === DIRECT_GROUP_ID;
+    const slotTarget = isSlotTarget(toUserId);
 
     if (isDirect) {
       const toUserSnap = await db.collection('users').doc(toUserId).get();
@@ -92,8 +97,7 @@ export async function POST(request: Request) {
       if (!participants.includes(fromUserId)) {
         return NextResponse.json({ error: 'Not a member of this group' }, { status: 403 });
       }
-      const isSlotId = toUserId.startsWith('slot:');
-      if (isSlotId) {
+      if (slotTarget) {
         const match = toUserId.match(/^slot:([^:]+):(\d+)$/);
         if (!match || match[1] !== groupId) {
           return NextResponse.json({ error: 'Invalid slot target' }, { status: 400 });
@@ -114,26 +118,71 @@ export async function POST(request: Request) {
       }
     }
 
-    const existingRatings = await db
+    // Slot placeholders stay scoped to the group. Real users: one rating A→B across the app.
+    let existingQuery = db
       .collection('ratings')
-      .where('groupId', '==', groupId)
       .where('fromUserId', '==', fromUserId)
-      .where('toUserId', '==', toUserId)
-      .limit(1)
-      .get();
-
-    if (!existingRatings.empty) {
-      return NextResponse.json({ error: 'Already rated this user in this context' }, { status: 409 });
+      .where('toUserId', '==', toUserId);
+    if (slotTarget) {
+      existingQuery = existingQuery.where('groupId', '==', groupId);
     }
+    const existingRatings = await existingQuery.limit(20).get();
 
     const fromUserSnap = await db.collection('users').doc(fromUserId).get();
     const fromUserDisplayName =
       (fromUserSnap.data() as { displayName?: string })?.displayName || 'Anonymous';
 
-    // Each person you rate gets up to 10,000 points (±10,000). No global pool.
+    if (!existingRatings.empty) {
+      const docs = existingRatings.docs;
+      const primary = docs[0];
+      const primaryData = primary.data();
+
+      if (!update) {
+        return NextResponse.json(
+          {
+            error: 'Already rated this user',
+            canUpdate: true,
+            existing: {
+              id: primary.id,
+              points: primaryData.points ?? 0,
+              questionScores: primaryData.questionScores ?? null,
+              groupId: primaryData.groupId ?? null,
+              toUserDisplayName: primaryData.toUserDisplayName ?? null,
+            },
+          },
+          { status: 409 }
+        );
+      }
+
+      const updatePayload: Record<string, unknown> = {
+        points,
+        reason: trimmedReason || null,
+        toUserDisplayName,
+        fromUserDisplayName,
+        // Keep original groupId for legacy group results; track every context in groupIds
+        groupIds: FieldValue.arrayUnion(groupId),
+        lastGroupId: groupId,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (sanitizedQuestionScores && Object.keys(sanitizedQuestionScores).length > 0) {
+        updatePayload.questionScores = sanitizedQuestionScores;
+      } else {
+        updatePayload.questionScores = FieldValue.delete();
+      }
+
+      await primary.ref.update(updatePayload);
+
+      // Collapse duplicates so the same rater does not count twice on the leaderboard
+      const extras = docs.slice(1);
+      await Promise.all(extras.map((d) => d.ref.delete()));
+
+      return NextResponse.json({ ok: true, updated: true, id: primary.id });
+    }
 
     const ratingData: Record<string, unknown> = {
       groupId,
+      groupIds: [groupId],
+      lastGroupId: groupId,
       fromUserId,
       fromUserDisplayName,
       toUserId,
@@ -146,9 +195,9 @@ export async function POST(request: Request) {
       ratingData.questionScores = sanitizedQuestionScores;
     }
 
-    await db.collection('ratings').add(ratingData);
+    const created = await db.collection('ratings').add(ratingData);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, id: created.id });
   } catch (err) {
     logger.error('Ratings API error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

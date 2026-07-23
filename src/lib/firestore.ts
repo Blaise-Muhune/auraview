@@ -14,7 +14,8 @@ import {
   setDoc,
   documentId,
   limit,
-  startAfter
+  startAfter,
+  runTransaction,
 } from 'firebase/firestore';
 import type { DocumentSnapshot } from 'firebase/firestore';
 import { db, storage } from './firebase';
@@ -27,6 +28,8 @@ export interface GroupSlot {
   label: string;
   userId?: string;
   displayName?: string;
+  /** Host left this seat unnamed — joiner writes their own name. */
+  open?: boolean;
 }
 
 export interface GroupSession {
@@ -95,6 +98,9 @@ export interface UserProfile {
 export interface Rating {
   id: string;
   groupId: string;
+  /** Every group/direct context this A→B rating has been confirmed in (for multi-group + leaderboard). */
+  groupIds?: string[];
+  lastGroupId?: string;
   fromUserId: string;
   fromUserDisplayName: string;
   toUserId: string;
@@ -228,18 +234,17 @@ export const createGroupSession = async (
     maxParticipants = Math.min(100, slotLabels.length);
   }
 
-  let slots: GroupSlot[] | undefined;
-  if (slotLabels && slotLabels.length > 0) {
-    const padded: string[] = [];
-    for (let i = 0; i < maxParticipants; i++) {
-      padded.push((slotLabels[i] ?? '').trim() || `Person ${i + 1}`);
+  // Always create one seat per expected person so leftover seats stay joinable with a custom name
+  const labels = slotLabels ?? [];
+  const slots: GroupSlot[] = Array.from({ length: maxParticipants }, (_, i) => {
+    if (i === 0) {
+      const hostLabel = (labels[0] ?? '').trim() || 'You';
+      return { label: hostLabel, userId: user.uid, displayName: creatorDisplayName };
     }
-    slots = padded.map((label, i) =>
-      i === 0
-        ? { label: label || 'You', userId: user.uid, displayName: creatorDisplayName }
-        : { label }
-    );
-  }
+    const name = (labels[i] ?? '').trim();
+    if (name) return { label: name };
+    return { label: 'Open seat', open: true };
+  });
 
   const groupData: Omit<GroupSession, 'id'> = {
     name,
@@ -252,7 +257,7 @@ export const createGroupSession = async (
     participants: [user.uid],
     maxParticipants,
     votingClosesAt: closesAt,
-    ...(slots && { slots }),
+    slots,
     ...(minVotersToClose != null && minVotersToClose > 0 && { minVotersToClose }),
   };
 
@@ -267,17 +272,13 @@ export const closeGroupVoting = async (groupId: string): Promise<void> => {
   });
 };
 
-// Check if voting is closed (manual, time-based, voter threshold, or all slots claimed)
+// Check if voting is closed (manual host close, time-based, or voter threshold — not "group full")
 export const isVotingClosed = (
   group: GroupSession,
   uniqueVoterCount: number,
   now: Date = new Date()
 ): boolean => {
   if (group.votingClosed) return true;
-  if (group.slots && group.slots.length > 0) {
-    const allClaimed = group.slots.every((s) => !!s.userId);
-    if (allClaimed) return true;
-  }
   if (group.votingClosesAt) {
     const ts = group.votingClosesAt as Timestamp;
     const closesAt = ts?.toDate ? ts.toDate() : new Date((ts as unknown as { seconds: number }).seconds * 1000);
@@ -285,6 +286,22 @@ export const isVotingClosed = (
   }
   if (group.minVotersToClose != null && uniqueVoterCount >= group.minVotersToClose) return true;
   return false;
+};
+
+/** Human-readable reason voting is still open / how it will end */
+export const getVotingCloseHint = (group: GroupSession): string => {
+  if (group.votingClosed) return 'Session closed by host.';
+  const parts: string[] = [];
+  if (group.votingClosesAt) {
+    const ts = group.votingClosesAt as Timestamp;
+    const closesAt = ts?.toDate ? ts.toDate() : new Date((ts as unknown as { seconds: number }).seconds * 1000);
+    parts.push(`Closes ${closesAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`);
+  }
+  if (group.minVotersToClose != null && group.minVotersToClose > 0) {
+    parts.push(`or when ${group.minVotersToClose} people have voted`);
+  }
+  parts.push('Host can close anytime');
+  return parts.join(' · ');
 };
 
 // Get group by ID
@@ -316,70 +333,110 @@ export const joinGroup = async (
   user: User,
   options?: { slotIndex?: number; displayName?: string }
 ): Promise<boolean> => {
-  const group = await getGroupById(groupId);
-  if (!group) return false;
-
-  if (group.participants.includes(user.uid)) {
-    return true; // Already a member
-  }
-
-  const max = group.maxParticipants ?? 50;
-  if (group.participants.length >= max) {
-    throw new Error('Group is full');
-  }
-
   await ensureUserProfile(user);
   await refreshUserProfile(user);
 
-  const slots = group.slots;
-  const slotIndex = options?.slotIndex;
   const displayName = (options?.displayName ?? '').trim() || user.displayName || 'Someone';
+  let claimedSlotIndex: number | null = null;
 
-  if (slots && slots.length > 0) {
-    if (slotIndex == null || slotIndex < 0 || slotIndex >= slots.length) {
-      throw new Error('Please pick a name from the list');
+  await runTransaction(db, async (transaction) => {
+    const groupRef = doc(db, 'groups', groupId);
+    const snap = await transaction.get(groupRef);
+    if (!snap.exists()) {
+      throw new Error('Group not found');
     }
-    const slot = slots[slotIndex];
-    if (slot.userId) {
-      throw new Error('That slot is already taken');
+    const group = { id: snap.id, ...snap.data() } as GroupSession;
+
+    if (group.participants.includes(user.uid)) {
+      return; // Already a member
     }
-    const newSlots = [...slots];
-    newSlots[slotIndex] = { ...slot, userId: user.uid, displayName };
-    const updatedParticipants = newSlots.filter((s): s is GroupSlot & { userId: string } => !!s.userId).map((s) => s.userId);
-    const participantDisplayNames = { ...(group.participantDisplayNames || {}) };
-    participantDisplayNames[user.uid] = displayName;
-    const isNowFull = updatedParticipants.length >= max;
-    await updateDoc(doc(db, 'groups', groupId), {
-      slots: newSlots,
+
+    const max = group.maxParticipants ?? 50;
+    if (group.participants.length >= max) {
+      throw new Error('Group is full');
+    }
+
+    const slots = group.slots;
+    const slotIndex = options?.slotIndex;
+
+    if (slots && slots.length > 0) {
+      if (slotIndex == null || slotIndex < 0 || slotIndex >= slots.length) {
+        throw new Error('Please pick a name from the list');
+      }
+      const slot = slots[slotIndex];
+      if (slot.userId) {
+        throw new Error('That slot is already taken');
+      }
+      const newSlots = [...slots];
+      const claimedSlot: GroupSlot = {
+        label: slot.open ? displayName : slot.label,
+        userId: user.uid,
+        displayName,
+        // Keep open marker so leave returns the seat to the open pool
+        ...(slot.open ? { open: true } : {}),
+      };
+      newSlots[slotIndex] = claimedSlot;
+      const updatedParticipants = newSlots
+        .filter((s): s is GroupSlot & { userId: string } => !!s.userId)
+        .map((s) => s.userId);
+      const participantDisplayNames = { ...(group.participantDisplayNames || {}) };
+      participantDisplayNames[user.uid] = displayName;
+      claimedSlotIndex = slotIndex;
+      transaction.update(groupRef, {
+        slots: newSlots,
+        participants: updatedParticipants,
+        participantDisplayNames,
+      });
+      return;
+    }
+
+    const updatedParticipants = [...group.participants, user.uid];
+    const updateData: Record<string, unknown> = {
       participants: updatedParticipants,
-      participantDisplayNames,
-      ...(isNowFull && { votingClosed: true }),
-    });
-    await migrateSlotRatingsToUser(groupId, slotIndex, user.uid, displayName, () => user.getIdToken());
-    return true;
-  }
+    };
+    if (displayName && displayName !== (user.displayName || 'Someone')) {
+      updateData.participantDisplayNames = {
+        ...(group.participantDisplayNames || {}),
+        [user.uid]: displayName,
+      };
+    }
+    transaction.update(groupRef, updateData);
+  });
 
-  const updatedParticipants = [...group.participants, user.uid];
-  const isNowFull = updatedParticipants.length >= max;
-  const updateData: { participants: string[]; participantDisplayNames?: Record<string, string>; votingClosed?: boolean } = {
-    participants: updatedParticipants,
-    ...(isNowFull && { votingClosed: true }),
-  };
-  if (displayName && displayName !== (user.displayName || 'Someone')) {
-    updateData.participantDisplayNames = { ...(group.participantDisplayNames || {}), [user.uid]: displayName };
+  if (claimedSlotIndex != null) {
+    await migrateSlotRatingsToUser(groupId, claimedSlotIndex, user.uid, displayName, () => user.getIdToken());
   }
-  await updateDoc(doc(db, 'groups', groupId), updateData);
   return true;
 };
 
-// Leave a group
+// Leave a group (frees name slots so someone else can claim them)
 export const leaveGroup = async (groupId: string, userId: string): Promise<void> => {
-  const group = await getGroupById(groupId);
-  if (!group) return;
-  
-  const updatedParticipants = group.participants.filter(id => id !== userId);
-  await updateDoc(doc(db, 'groups', groupId), {
-    participants: updatedParticipants
+  const groupRef = doc(db, 'groups', groupId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(groupRef);
+    if (!snap.exists()) return;
+    const group = { id: snap.id, ...snap.data() } as GroupSession;
+
+    const updatedParticipants = group.participants.filter((id) => id !== userId);
+    const update: Record<string, unknown> = {
+      participants: updatedParticipants,
+    };
+
+    if (group.slots && group.slots.length > 0) {
+      update.slots = group.slots.map((s) => {
+        if (s.userId !== userId) return s;
+        if (s.open) return { label: 'Open seat', open: true };
+        return { label: s.label };
+      });
+    }
+
+    if (group.participantDisplayNames?.[userId]) {
+      const names = { ...group.participantDisplayNames };
+      delete names[userId];
+      update.participantDisplayNames = names;
+    }
+
+    transaction.update(groupRef, update);
   });
 };
 
@@ -657,7 +714,7 @@ export const refreshUserProfile = async (user: User): Promise<void> => {
   }
 };
 
-// Submit a rating via API (server-side validation)
+// Submit a rating via API (server-side validation). Pass update:true to overwrite a prior A→B rating.
 export const submitRating = async (
   groupId: string,
   user: User,
@@ -666,8 +723,9 @@ export const submitRating = async (
   points: number,
   reason?: string,
   token?: string,
-  questionScores?: { [key: string]: number }
-): Promise<void> => {
+  questionScores?: { [key: string]: number },
+  options?: { update?: boolean }
+): Promise<{ updated?: boolean }> => {
   const idToken = token ?? (await user.getIdToken());
   const body: Record<string, unknown> = {
     idToken,
@@ -680,6 +738,9 @@ export const submitRating = async (
   if (questionScores && Object.keys(questionScores).length > 0) {
     body.questionScores = questionScores;
   }
+  if (options?.update) {
+    body.update = true;
+  }
   const res = await fetch('/api/ratings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -689,48 +750,148 @@ export const submitRating = async (
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error || `Failed to submit rating (${res.status})`);
   }
+  const data = (await res.json().catch(() => ({}))) as { updated?: boolean };
+  return { updated: data.updated === true };
+};
+
+export type PriorRating = {
+  id: string;
+  points: number;
+  questionScores?: { [key: string]: number };
+  groupId: string;
+  groupIds?: string[];
+};
+
+/** Any prior rating from this user to a real user (group or direct). Slots use group-scoped lookups. */
+export const getPriorRatingToUser = async (
+  fromUserId: string,
+  toUserId: string,
+  options?: { groupIdForSlot?: string }
+): Promise<PriorRating | null> => {
+  if (isSlotId(toUserId)) {
+    const groupId = options?.groupIdForSlot;
+    if (!groupId) return null;
+    const q = query(
+      collection(db, 'ratings'),
+      where('groupId', '==', groupId),
+      where('fromUserId', '==', fromUserId),
+      where('toUserId', '==', toUserId),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    const d = snap.docs[0];
+    const data = d.data() as Rating;
+    return {
+      id: d.id,
+      points: data.points,
+      questionScores: data.questionScores,
+      groupId: data.groupId,
+      groupIds: data.groupIds,
+    };
+  }
+
+  const q = query(
+    collection(db, 'ratings'),
+    where('fromUserId', '==', fromUserId),
+    where('toUserId', '==', toUserId),
+    limit(5)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  const data = d.data() as Rating;
+  return {
+    id: d.id,
+    points: data.points,
+    questionScores: data.questionScores,
+    groupId: data.groupId,
+    groupIds: data.groupIds,
+  };
+};
+
+/** Map of toUserId → prior rating for many targets (skips empty). */
+export const getPriorRatingsToUsers = async (
+  fromUserId: string,
+  toUserIds: string[],
+  groupIdForSlots?: string
+): Promise<Record<string, PriorRating>> => {
+  const unique = [...new Set(toUserIds.filter(Boolean))];
+  const out: Record<string, PriorRating> = {};
+  await Promise.all(
+    unique.map(async (tid) => {
+      const prior = await getPriorRatingToUser(fromUserId, tid, { groupIdForSlot: groupIdForSlots });
+      if (prior) out[tid] = prior;
+    })
+  );
+  return out;
 };
 
 /** `groupId` used for leaderboard / profile direct ratings (must match `/api/ratings`). */
 export const DIRECT_RATING_GROUP_ID = 'direct';
 
-/** Whether the signed-in user has already submitted a direct (non-group) rating to this person. */
+/** @deprecated Prefer getPriorRatingToUser — kept for call sites checking existence only */
 export const hasUserRatedDirectly = async (fromUserId: string, toUserId: string): Promise<boolean> => {
-  const q = query(
-    collection(db, 'ratings'),
-    where('groupId', '==', DIRECT_RATING_GROUP_ID),
-    where('fromUserId', '==', fromUserId),
-    where('toUserId', '==', toUserId),
-    limit(1)
-  );
-  const snapshot = await getDocs(q);
-  return !snapshot.empty;
+  const prior = await getPriorRatingToUser(fromUserId, toUserId);
+  return !!prior;
 };
 
 // Get participant IDs the current user has already rated in a group (persisted)
 export const getParticipantIdsRatedByUserInGroup = async (groupId: string, fromUserId: string): Promise<string[]> => {
-  const q = query(
+  const legacyQ = query(
     collection(db, 'ratings'),
     where('groupId', '==', groupId),
     where('fromUserId', '==', fromUserId)
   );
-  const snapshot = await getDocs(q);
-  return [...new Set(snapshot.docs.map(d => (d.data() as Rating).toUserId))];
+  const groupIdsQ = query(
+    collection(db, 'ratings'),
+    where('fromUserId', '==', fromUserId),
+    where('groupIds', 'array-contains', groupId)
+  );
+  const ids = new Set<string>();
+  const legacySnap = await getDocs(legacyQ);
+  for (const d of legacySnap.docs) ids.add((d.data() as Rating).toUserId);
+  try {
+    const groupIdsSnap = await getDocs(groupIdsQ);
+    for (const d of groupIdsSnap.docs) ids.add((d.data() as Rating).toUserId);
+  } catch {
+    // Index may not be deployed yet — legacy groupId query still works
+  }
+  return [...ids];
 };
 
-// Get ratings for a group
+// Get ratings for a group (legacy groupId + groupIds array-contains)
 export const getGroupRatings = async (groupId: string): Promise<Rating[]> => {
-  const q = query(
+  const legacyQ = query(
     collection(db, 'ratings'),
     where('groupId', '==', groupId),
     orderBy('createdAt', 'desc')
   );
-  const querySnapshot = await getDocs(q);
-  
-  return querySnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })) as Rating[];
+  const groupIdsQ = query(
+    collection(db, 'ratings'),
+    where('groupIds', 'array-contains', groupId),
+    orderBy('createdAt', 'desc')
+  );
+  const byId = new Map<string, Rating>();
+  const legacySnap = await getDocs(legacyQ);
+  for (const d of legacySnap.docs) {
+    byId.set(d.id, { id: d.id, ...d.data() } as Rating);
+  }
+  try {
+    const groupIdsSnap = await getDocs(groupIdsQ);
+    for (const d of groupIdsSnap.docs) {
+      if (!byId.has(d.id)) {
+        byId.set(d.id, { id: d.id, ...d.data() } as Rating);
+      }
+    }
+  } catch {
+    // Index may not be deployed yet
+  }
+  return [...byId.values()].sort((a, b) => {
+    const at = a.createdAt?.toMillis?.() ?? 0;
+    const bt = b.createdAt?.toMillis?.() ?? 0;
+    return bt - at;
+  });
 };
 
 // Get user's total aura from ratings

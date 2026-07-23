@@ -108,7 +108,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/leaderboard');
+      router.push('/login?redirect=' + encodeURIComponent(`/group/${id}/results`));
       return;
     }
 
@@ -339,7 +339,10 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       <main className="max-w-xl mx-auto px-5 py-10">
           <header className="mb-10 results-item" style={{ animationDelay: '0.02s' }}>
             <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">
-              Results
+              {(() => {
+                const uniqueVoters = new Set(ratings.map(r => r.fromUserId)).size;
+                return isVotingClosed(group, uniqueVoters) ? 'Final results' : 'Live results';
+              })()}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm">{group.name}</p>
             {(() => {
@@ -347,12 +350,16 @@ export default function ResultsPage({ params }: ResultsPageProps) {
               const votingClosed = isVotingClosed(group, uniqueVoters);
               if (!votingClosed) {
                 return (
-                  <p className="mt-4 text-[13px] text-amber-600 dark:text-amber-400 border-l-2 border-amber-500 pl-3">
-                    Voting is still open. Shareable cards appear when it closes.
+                  <p className="mt-4 text-[13px] text-amber-700 dark:text-amber-400 border-l-2 border-amber-500 pl-3">
+                    <span className="font-medium">Live / partial standings</span> — voting is still open. Rankings can change until the host closes the session or time runs out. Shareable cards appear when it closes.
                   </p>
                 );
               }
-              return null;
+              return (
+                <p className="mt-4 text-[13px] text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3">
+                  Final results — voting is closed.
+                </p>
+              );
             })()}
           </header>
 

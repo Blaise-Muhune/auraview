@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { use } from "react";
-import { getUserProfile, hasUserRatedDirectly, submitRating, updateUserProfile, UserProfile } from "@/lib/firestore";
+import { getUserProfile, getPriorRatingToUser, submitRating, updateUserProfile, UserProfile, PriorRating } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
 import { sendNotification } from "@/lib/notify";
 import { Nav } from "@/components/Nav";
@@ -46,7 +46,8 @@ export default function RateUserPage({ params }: RateUserPageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [alreadyRatedDirect, setAlreadyRatedDirect] = useState(false);
+  const [priorRating, setPriorRating] = useState<PriorRating | null>(null);
+  const [updateMode, setUpdateMode] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showLeaderboardConsent, setShowLeaderboardConsent] = useState(false);
@@ -84,7 +85,8 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     const loadTargetUser = async () => {
       setProfileError(null);
       setSubmitError(null);
-      setAlreadyRatedDirect(false);
+      setPriorRating(null);
+      setUpdateMode(false);
       try {
         if (user) {
           const userProfile = await getUserProfile(id);
@@ -94,9 +96,16 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           }
           setTargetUser(userProfile);
           if (user.uid !== id) {
-            const already = await hasUserRatedDirectly(user.uid, id);
-            if (already) {
-              setAlreadyRatedDirect(true);
+            const prior = await getPriorRatingToUser(user.uid, id);
+            if (prior) {
+              setPriorRating(prior);
+              const prefill: Record<string, number> = {};
+              if (prior.questionScores) {
+                for (const [k, v] of Object.entries(prior.questionScores)) {
+                  if (typeof v === 'number') prefill[k] = v;
+                }
+              }
+              setRatings(prefill);
               try {
                 sessionStorage.removeItem(PENDING_RATING_KEY);
               } catch {
@@ -156,9 +165,22 @@ export default function RateUserPage({ params }: RateUserPageProps) {
         setIsSubmitting(true);
         setSubmitError(null);
         try {
-          const dup = await hasUserRatedDirectly(user.uid, pending.targetId);
+          const dup = await getPriorRatingToUser(user.uid, pending.targetId);
           if (dup) {
-            setAlreadyRatedDirect(true);
+            setPriorRating(dup);
+            const prefill: Record<string, number> = {};
+            if (dup.questionScores) {
+              for (const [k, v] of Object.entries(dup.questionScores)) {
+                if (typeof v === 'number') prefill[k] = v;
+              }
+            }
+            if (pending.questionScores) {
+              for (const [k, v] of Object.entries(pending.questionScores)) {
+                if (typeof v === 'number') prefill[k] = v;
+              }
+            }
+            setRatings(prefill);
+            setUpdateMode(true);
             const prof = await getUserProfile(pending.targetId);
             if (prof) setTargetUser(prof);
             return;
@@ -187,7 +209,8 @@ export default function RateUserPage({ params }: RateUserPageProps) {
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Failed to submit rating';
           if (msg.includes('Already rated')) {
-            setAlreadyRatedDirect(true);
+            setUpdateMode(true);
+            setSubmitError('You already rated them — change scores and submit to update, or keep your current rating.');
           } else {
             setSubmitError(msg);
           }
@@ -258,7 +281,7 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     setSuccess(null);
 
     try {
-      await submitRating(
+      const result = await submitRating(
         'direct',
         user,
         targetUser.id,
@@ -266,17 +289,22 @@ export default function RateUserPage({ params }: RateUserPageProps) {
         totalPoints,
         undefined,
         undefined,
-        Object.keys(questionScores).length > 0 ? questionScores : undefined
+        Object.keys(questionScores).length > 0 ? questionScores : undefined,
+        { update: !!priorRating }
       );
 
-      const token = await user.getIdToken();
-      sendNotification(targetUser.id, 'rating_received', {
-        fromUserDisplayName: user.displayName || 'Someone',
-        points: String(totalPoints),
-        groupName: 'a direct rating',
-      }, { token, fromUserId: user.uid });
+      if (!priorRating) {
+        const token = await user.getIdToken();
+        sendNotification(targetUser.id, 'rating_received', {
+          fromUserDisplayName: user.displayName || 'Someone',
+          points: String(totalPoints),
+          groupName: 'a direct rating',
+        }, { token, fromUserId: user.uid });
+      }
 
-      setSuccess('Appreciation shared!');
+      setSuccess(result.updated || priorRating ? 'Rating updated!' : 'Appreciation shared!');
+      setPriorRating(null);
+      setUpdateMode(false);
 
       const profile = await getUserProfile(user.uid);
       const needsConsent = profile?.showOnLeaderboard === undefined || profile?.showOnGroupLeaderboard === undefined;
@@ -291,7 +319,9 @@ export default function RateUserPage({ params }: RateUserPageProps) {
       }
       const msg = err instanceof Error ? err.message : 'Failed to submit rating';
       if (msg.includes('Already rated')) {
-        setAlreadyRatedDirect(true);
+        setPriorRating((prev) => prev ?? { id: '', points: totalPoints, groupId: 'direct', questionScores });
+        setUpdateMode(true);
+        setSubmitError('You already rated them — change scores and submit to update, or keep your current rating.');
       } else {
         setSubmitError(msg);
       }
@@ -323,7 +353,8 @@ export default function RateUserPage({ params }: RateUserPageProps) {
     );
   }
 
-  if (user && alreadyRatedDirect && targetUser) {
+  if (user && priorRating && !updateMode && targetUser && !success) {
+    const fromGroup = priorRating.groupId && priorRating.groupId !== 'direct';
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950">
         <Nav showBack backHref="/leaderboard" />
@@ -331,24 +362,35 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-2xl" aria-hidden>
             ✓
           </div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">You already rated {targetUser.displayName || 'this person'}</h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">
-            Direct ratings are one per person. You can open their profile or go back to the leaderboard.
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+            You already rated {targetUser.displayName || 'this person'}
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-2 text-sm">
+            {fromGroup
+              ? 'That vote (from a group or earlier) already counts on the global leaderboard.'
+              : 'You have an existing rating for them on the leaderboard.'}
+          </p>
+          <p className="text-gray-500 dark:text-gray-500 mb-6 text-sm">
+            Current total: {priorRating.points > 0 ? '+' : ''}{priorRating.points.toLocaleString()} aura
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link
-              href={`/profile/${targetUser.id}`}
+            <button
+              type="button"
+              onClick={() => setUpdateMode(true)}
               className="inline-block px-4 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-lg hover:opacity-90"
             >
-              View profile
-            </Link>
+              Update my rating
+            </button>
             <Link
               href="/leaderboard"
               className="inline-block px-4 py-3 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900"
             >
-              Top auras
+              Keep current rating
             </Link>
           </div>
+          <Link href={`/profile/${targetUser.id}`} className="inline-block mt-4 text-sm text-amber-600 dark:text-amber-400 hover:underline">
+            View profile
+          </Link>
         </main>
       </div>
     );
@@ -571,11 +613,20 @@ export default function RateUserPage({ params }: RateUserPageProps) {
                   Submitting...
                 </span>
               ) : user ? (
-                'Submit'
+                priorRating || updateMode ? 'Update rating' : 'Submit'
               ) : (
                 'Sign in & submit'
               )}
             </button>
+            {(priorRating || updateMode) && (
+              <button
+                type="button"
+                onClick={() => router.push('/leaderboard')}
+                className="text-sm text-gray-500 dark:text-gray-400 hover:underline"
+              >
+                Keep current rating instead
+              </button>
+            )}
           </div>
         </div>
       </main>

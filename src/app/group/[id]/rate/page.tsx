@@ -7,7 +7,7 @@ import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { use } from "react";
-import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, submitRating, isVotingClosed, GroupSession, GroupSlot, getUserProfile, updateUserProfile, getSlotId, isSlotId } from "@/lib/firestore";
+import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, getPriorRatingsToUsers, submitRating, isVotingClosed, GroupSession, GroupSlot, getUserProfile, updateUserProfile, getSlotId, isSlotId, PriorRating } from "@/lib/firestore";
 import { getScoreLegend } from "@/lib/rating-scale";
 import { sendNotification } from "@/lib/notify";
 import { LeaderboardConsent } from "@/components/LeaderboardConsent";
@@ -53,6 +53,10 @@ export default function RatePage({ params }: RatePageProps) {
   const [currentParticipantIndex, setCurrentParticipantIndex] = useState(0);
   const [currentStep, setCurrentStep] = useState(0); // 0 = rating, 1 = review
   const [alreadyRatedIds, setAlreadyRatedIds] = useState<Set<string>>(new Set());
+  const [priorByUser, setPriorByUser] = useState<Record<string, PriorRating>>({});
+  /** User chose “Update” for these priors — show the score form instead of the choice gate. */
+  const [updatingPriorIds, setUpdatingPriorIds] = useState<Set<string>>(new Set());
+  const [keepBusy, setKeepBusy] = useState(false);
   const [flash, setFlash] = useState<{ key: string; label: string; id: number } | null>(null);
   const [openTooltipId, setOpenTooltipId] = useState<string | null>(null);
 
@@ -97,7 +101,7 @@ export default function RatePage({ params }: RatePageProps) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/leaderboard');
+      router.push('/login?redirect=' + encodeURIComponent(`/group/${id}/rate`));
       return;
     }
 
@@ -154,6 +158,11 @@ export default function RatePage({ params }: RatePageProps) {
         setError('Group not found');
         return;
       }
+      if (!groupData.participants.includes(user.uid)) {
+        setError('You are not a member of this group. Join with the invite code first.');
+        setIsLoading(false);
+        return;
+      }
 
       const ratedSet = new Set(ratedIds);
       const participantsToRate = getParticipantsToRate(groupData, user.uid);
@@ -163,9 +172,25 @@ export default function RatePage({ params }: RatePageProps) {
         return;
       }
 
+      const priors = await getPriorRatingsToUsers(user.uid, participantsToRate, groupData.id);
+      const prefill: { [key: string]: number } = {};
+      for (const [pid, prior] of Object.entries(priors)) {
+        if (ratedSet.has(pid)) continue;
+        if (prior.questionScores) {
+          for (const [qid, v] of Object.entries(prior.questionScores)) {
+            if (typeof v === 'number') prefill[`${pid}_${qid}`] = v;
+          }
+        }
+      }
+
       setGroup(groupData);
       setGroupRatings(ratingsData);
       setAlreadyRatedIds(ratedSet);
+      setPriorByUser(priors);
+      setUpdatingPriorIds(new Set());
+      if (Object.keys(prefill).length > 0) {
+        setRatings((prev) => ({ ...prefill, ...prev }));
+      }
       setCurrentParticipantIndex(firstUnratedIdx >= 0 ? firstUnratedIdx : 0);
     } catch (err) {
       if (process.env.NODE_ENV === 'development') {
@@ -269,9 +294,11 @@ export default function RatePage({ params }: RatePageProps) {
   };
 
   const getNextUnratedIndex = () => {
-    const isRated = (pid: string) => alreadyRatedIds.has(pid) || getParticipantTotalRating(pid) !== 0;
+    const isDone = (pid: string) =>
+      alreadyRatedIds.has(pid) ||
+      (getParticipantTotalRating(pid) !== 0 && !needsPriorChoice(pid));
     for (let i = currentParticipantIndex + 1; i < participants.length; i++) {
-      if (!isRated(participants[i])) return i;
+      if (!isDone(participants[i])) return i;
     }
     return -1;
   };
@@ -295,6 +322,60 @@ export default function RatePage({ params }: RatePageProps) {
     handleNextPerson();
   };
 
+  const needsPriorChoice = (pid: string | undefined) => {
+    if (!pid || !group) return false;
+    if (alreadyRatedIds.has(pid)) return false;
+    if (updatingPriorIds.has(pid)) return false;
+    const prior = priorByUser[pid];
+    if (!prior) return false;
+    const inThisGroup =
+      prior.groupId === group.id || (prior.groupIds?.includes(group.id!) ?? false);
+    return !inThisGroup;
+  };
+
+  const handleKeepPrior = async (participantId: string) => {
+    if (!user || !group?.id) return;
+    const prior = priorByUser[participantId];
+    if (!prior) return;
+    setKeepBusy(true);
+    setError(null);
+    try {
+      const participantName =
+        participantId === group.createdBy
+          ? group.createdByDisplayName
+          : participantNames[participantId] || 'Anonymous User';
+      await submitRating(
+        group.id,
+        user,
+        participantId,
+        participantName,
+        prior.points,
+        undefined,
+        undefined,
+        prior.questionScores,
+        { update: true }
+      );
+      setAlreadyRatedIds((prev) => new Set(prev).add(participantId));
+      const list = getParticipantsToRate(group, user.uid);
+      const nextUnrated = (() => {
+        for (let i = currentParticipantIndex + 1; i < list.length; i++) {
+          if (!alreadyRatedIds.has(list[i]) && list[i] !== participantId) return i;
+        }
+        return -1;
+      })();
+      if (nextUnrated >= 0) setCurrentParticipantIndex(nextUnrated);
+      else setCurrentStep(1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not keep rating');
+    } finally {
+      setKeepBusy(false);
+    }
+  };
+
+  const handleChooseUpdatePrior = (participantId: string) => {
+    setUpdatingPriorIds((prev) => new Set(prev).add(participantId));
+  };
+
   const getParticipantTotalRating = (participantId: string) => {
     return auraQuestions.reduce((total, question) => {
       const questionKey = `${participantId}_${question.id}`;
@@ -316,37 +397,45 @@ export default function RatePage({ params }: RatePageProps) {
         participantRatings[participantId] = totalRating;
       });
       
-      // Submit ratings for each participant
+      // Submit ratings for each participant (skip already confirmed in this group)
       const ratingPromises = Object.entries(participantRatings).map(([participantId, points]) => {
-        if (points !== 0 && group.id) {
-          const participantName = participantId === group.createdBy 
-            ? group.createdByDisplayName 
-            : participantNames[participantId] || 'Anonymous User';
-          const questionScores: { [key: string]: number } = {};
-          auraQuestions.forEach((q) => {
-            const v = ratings[`${participantId}_${q.id}`] ?? 0;
-            if (v !== 0) questionScores[q.id] = v;
-          });
-          return submitRating(
-            group.id,
-            user,
-            participantId,
-            participantName,
-            points,
-            undefined,
-            undefined,
-            Object.keys(questionScores).length > 0 ? questionScores : undefined
-          );
-        }
-        return Promise.resolve();
+        if (!group.id || alreadyRatedIds.has(participantId)) return Promise.resolve();
+        const hasPrior = !!priorByUser[participantId];
+        if (points === 0 && !hasPrior) return Promise.resolve();
+
+        const participantName = participantId === group.createdBy 
+          ? group.createdByDisplayName 
+          : participantNames[participantId] || 'Anonymous User';
+        const questionScores: { [key: string]: number } = {};
+        auraQuestions.forEach((q) => {
+          const v = ratings[`${participantId}_${q.id}`] ?? 0;
+          if (v !== 0) questionScores[q.id] = v;
+        });
+        return submitRating(
+          group.id,
+          user,
+          participantId,
+          participantName,
+          points,
+          undefined,
+          undefined,
+          Object.keys(questionScores).length > 0 ? questionScores : undefined,
+          { update: hasPrior }
+        );
       });
       
       await Promise.all(ratingPromises);
-      // Notify recipients (non-blocking) - skip slot placeholders (no user to notify)
+      // Notify recipients (non-blocking) — only first-time ratings, skip slots
       const fromName = user.displayName || 'Someone';
       const token = await user.getIdToken();
       Object.entries(participantRatings).forEach(([participantId, points]) => {
-        if (points !== 0 && participantId !== user.uid && !isSlotId(participantId)) {
+        if (
+          points !== 0 &&
+          participantId !== user.uid &&
+          !isSlotId(participantId) &&
+          !priorByUser[participantId] &&
+          !alreadyRatedIds.has(participantId)
+        ) {
           sendNotification(participantId, 'rating_received', {
             fromUserDisplayName: fromName,
             points: String(points),
@@ -540,7 +629,9 @@ export default function RatePage({ params }: RatePageProps) {
                   return sum + (ratings[key] ?? 0);
                 }, 0);
 
-                const isParticipantRated = (pid: string) => alreadyRatedIds.has(pid) || getParticipantTotalRating(pid) !== 0;
+                const isParticipantRated = (pid: string) =>
+                  alreadyRatedIds.has(pid) ||
+                  (getParticipantTotalRating(pid) !== 0 && !needsPriorChoice(pid));
                 // Progress ring: -10000..+10000 maps to 0..100% of circumference
                 const circum = 2 * Math.PI * 18;
                 const progRatio = (totalGiven + POINTS_PER_PERSON) / (POINTS_PER_PERSON * 2);
@@ -619,8 +710,48 @@ export default function RatePage({ params }: RatePageProps) {
                       </p>
                     </div>
 
+                    {needsPriorChoice(currentParticipant) && priorByUser[currentParticipant] && (
+                      <div className="mb-4 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50/80 dark:bg-amber-950/30 p-4 text-center">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+                          You already rated {participantName}
+                        </p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                          {priorByUser[currentParticipant].groupId === 'direct'
+                            ? 'From the leaderboard — that score already counts globally.'
+                            : 'From another group — that score already counts on the global leaderboard.'}
+                          {' '}Current total:{' '}
+                          {priorByUser[currentParticipant].points > 0 ? '+' : ''}
+                          {priorByUser[currentParticipant].points.toLocaleString()}
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                          <button
+                            type="button"
+                            disabled={keepBusy}
+                            onClick={() => handleChooseUpdatePrior(currentParticipant)}
+                            className="px-4 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50"
+                          >
+                            Update my rating
+                          </button>
+                          <button
+                            type="button"
+                            disabled={keepBusy}
+                            onClick={() => handleKeepPrior(currentParticipant)}
+                            className="px-4 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 disabled:opacity-50"
+                          >
+                            {keepBusy ? 'Saving…' : 'Keep current rating'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {updatingPriorIds.has(currentParticipant) && priorByUser[currentParticipant] && (
+                      <p className="mb-3 text-center text-xs text-amber-700 dark:text-amber-400">
+                        Updating your previous rating — submit at the end to save changes.
+                      </p>
+                    )}
+
                     {/* All 5 questions - +500 / -500 per section */}
-                    <div className="space-y-4">
+                    <div className={`space-y-4 ${needsPriorChoice(currentParticipant) ? 'opacity-40 pointer-events-none' : ''}`}>
                       {auraQuestions.map((q) => {
                         const key = `${currentParticipant}_${q.id}`;
                         const val = ratings[key] ?? 0;
@@ -688,20 +819,22 @@ export default function RatePage({ params }: RatePageProps) {
                     <div className="flex gap-3 mt-8">
                       <button
                         onClick={handlePrevPerson}
-                        disabled={currentParticipantIndex === 0}
+                        disabled={currentParticipantIndex === 0 || keepBusy}
                         className="flex-1 py-3 px-4 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-700 dark:text-gray-400 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700/80 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         ← Back
                       </button>
                       <button
                         onClick={handleSkipPerson}
-                        className="py-3 px-4 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-600 dark:text-gray-500 font-medium hover:bg-gray-200 dark:hover:bg-gray-700/80"
+                        disabled={needsPriorChoice(currentParticipant) || keepBusy}
+                        className="py-3 px-4 rounded-xl bg-gray-100 dark:bg-gray-800/80 dark:border dark:border-gray-700/50 text-gray-600 dark:text-gray-500 font-medium hover:bg-gray-200 dark:hover:bg-gray-700/80 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Skip
                       </button>
                       <button
                         onClick={handleNextPerson}
-                        className="flex-1 py-3 px-4 rounded-xl bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500"
+                        disabled={needsPriorChoice(currentParticipant) || keepBusy}
+                        className="flex-1 py-3 px-4 rounded-xl bg-gray-900 dark:bg-gray-600 dark:border dark:border-gray-500/50 text-white dark:text-gray-100 font-semibold hover:opacity-90 dark:hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {getNextUnratedIndex() === -1 ? 'Done →' : 'Next →'}
                       </button>

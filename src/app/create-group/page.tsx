@@ -62,7 +62,7 @@ export default function CreateGroup() {
       setShared(true);
       setTimeout(() => setShared(false), 2000);
     } catch {
-      // ignore
+      setError(`Could not copy. Share this code manually: ${code}`);
     }
   };
 
@@ -93,7 +93,11 @@ export default function CreateGroup() {
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const expectedCount = Math.max(2, Math.min(100, Number(formData.expectedCount) || 8));
+      // If names are listed, size the group to at least that many people
+      let expectedCount = Math.max(2, Math.min(100, Number(formData.expectedCount) || 8));
+      if (slotLabels.length > 0) {
+        expectedCount = Math.max(expectedCount, Math.min(100, slotLabels.length));
+      }
       const result = await createGroupSession(
         formData.name.trim(),
         formData.description.trim(),
@@ -114,10 +118,17 @@ export default function CreateGroup() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => {
+      const next = { ...prev, [name]: value };
+      if (name === 'memberNamesText') {
+        const n = value
+          .split(/[\n,]+/)
+          .map((s) => s.trim())
+          .filter(Boolean).length;
+        if (n >= 2) next.expectedCount = Math.max(prev.expectedCount, Math.min(100, n));
+      }
+      return next;
+    });
   };
 
   if (loading || profileLoading) {
@@ -163,14 +174,19 @@ export default function CreateGroup() {
               </button>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Friends join at Join group with this code, or open your invite link.
+              Friends join at Join group with this code, or open your invite link. Voting stays open until the time limit or you close the session — filling the group does not lock ratings.
             </p>
-            <Link
-              href="/my-groups"
-              className="inline-block pt-2 text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline"
-            >
-              Continue to My groups →
-            </Link>
+            <div className="flex flex-col gap-2 pt-2">
+              <Link
+                href="/my-groups"
+                className="inline-block w-full py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90"
+              >
+                Go to My groups
+              </Link>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Rate becomes available once at least one other person joins.
+              </p>
+            </div>
           </div>
         </main>
       </div>
@@ -220,7 +236,7 @@ export default function CreateGroup() {
                   max="100"
                   className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you). Voting defaults to {formData.votingDurationDays} days.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you). You can list fewer names than this — leftover seats stay open for friends to join and type their own names. Voting stays open until the time limit or you close — filling the group does not lock ratings. Default {formData.votingDurationDays} days.</p>
               </div>
 
               <div>
@@ -243,7 +259,7 @@ export default function CreateGroup() {
                   </p>
                   <p>
                     If you add names, the <span className="font-medium text-gray-700 dark:text-gray-300">first name is your slot</span>{' '}
-                    (the label for you as host). Put <span className="font-medium text-gray-700 dark:text-gray-300">your name on the first line</span>, then everyone else you expect—joiners pick an open slot and can tweak the label.
+                    (the label for you as host). Put <span className="font-medium text-gray-700 dark:text-gray-300">your name on the first line</span>, then anyone else you know. Example: size <span className="font-medium text-gray-700 dark:text-gray-300">8</span> with <span className="font-medium text-gray-700 dark:text-gray-300">5 names</span> → 3 open seats for people to join and write their own names.
                   </p>
                   <p className="font-medium text-gray-700 dark:text-gray-300">How to type names</p>
                   <ul className="list-disc pl-4 space-y-0.5">

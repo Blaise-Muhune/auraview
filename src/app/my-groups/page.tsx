@@ -5,9 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
-import { getUserGroups, leaveGroup, closeGroupVoting, getParticipantIdsRatedByUserInGroup, GroupSession, getSlotId } from "@/lib/firestore";
-import { collection, query, limit, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getUserGroups, leaveGroup, closeGroupVoting, getParticipantIdsRatedByUserInGroup, GroupSession, getSlotId, isVotingClosed, getVotingCloseHint } from "@/lib/firestore";
 
 export default function MyGroupsPage() {
   const { user, loading } = useAuth();
@@ -19,6 +17,7 @@ export default function MyGroupsPage() {
   const [leavingGroupId, setLeavingGroupId] = useState<string | null>(null);
   const [closingGroupId, setClosingGroupId] = useState<string | null>(null);
   const [sharedGroupId, setSharedGroupId] = useState<string | null>(null);
+  const [shareFailGroupId, setShareFailGroupId] = useState<string | null>(null);
   const [unratedCountByGroupId, setUnratedCountByGroupId] = useState<Record<string, number>>({});
   const [resultsLinkModal, setResultsLinkModal] = useState<{ groupId: string; groupName: string } | null>(null);
   const [resultsLinkCopied, setResultsLinkCopied] = useState(false);
@@ -28,8 +27,6 @@ export default function MyGroupsPage() {
     setIsLoading(true);
     setGroupsFetchError(null);
     try {
-      const testQuery = query(collection(db, 'groups'), limit(1));
-      await getDocs(testQuery);
       const userGroups = await getUserGroups(user.uid);
       setGroups(userGroups);
     } catch (err) {
@@ -77,6 +74,13 @@ export default function MyGroupsPage() {
   }, [user, groups]);
 
   const handleCloseVoting = async (group: GroupSession) => {
+    if (
+      !window.confirm(
+        `Close voting for "${group.name}"? Everyone will see final results, and no more ratings can be submitted.`
+      )
+    ) {
+      return;
+    }
     const groupId = group.id!;
     setClosingGroupId(groupId);
     try {
@@ -92,14 +96,23 @@ export default function MyGroupsPage() {
 
   const handleLeaveGroup = async (groupId: string) => {
     if (!user) return;
+    const g = groups.find((x) => x.id === groupId);
+    if (
+      !window.confirm(
+        g
+          ? `Leave "${g.name}"? Your name slot will free up for someone else.`
+          : 'Leave this group?'
+      )
+    ) {
+      return;
+    }
 
     setLeavingGroupId(groupId);
     try {
       await leaveGroup(groupId, user.uid);
-      // Remove the group from the local state
       setGroups(prev => prev.filter(group => group.id !== groupId));
-    } catch {
-      setError('Failed to leave group');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to leave group');
     } finally {
       setLeavingGroupId(null);
     }
@@ -107,8 +120,9 @@ export default function MyGroupsPage() {
 
   const shareGroupLink = async (group: GroupSession) => {
     const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/join-group?code=${group.code}`;
-    const message = `We're rating each other on Aura — a quick app to give and get feedback from friends. Join our group "${group.name}" and add your ratings: ${url}`;
+    const message = `We're rating each other on Aura — a quick app to give and get feedback from friends. Join our group "${group.name}" (code ${group.code}): ${url}`;
     const title = `Join ${group.name} on Aura`;
+    setShareFailGroupId(null);
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({ title, url, text: message });
@@ -116,23 +130,27 @@ export default function MyGroupsPage() {
         setTimeout(() => setSharedGroupId(null), 2000);
         return;
       } catch {
-        // User cancelled or share failed
+        // cancelled or failed — try clipboard
       }
     }
-    // Fallback: copy message with link so they can paste in group chat etc.
     try {
       await navigator.clipboard.writeText(message);
       setSharedGroupId(group.id!);
       setTimeout(() => setSharedGroupId(null), 2000);
     } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = message;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setSharedGroupId(group.id!);
-      setTimeout(() => setSharedGroupId(null), 2000);
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = message;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        setSharedGroupId(group.id!);
+        setTimeout(() => setSharedGroupId(null), 2000);
+      } catch {
+        setShareFailGroupId(group.id!);
+        setError(`Could not copy. Share code manually: ${group.code}`);
+      }
     }
   };
 
@@ -212,6 +230,9 @@ export default function MyGroupsPage() {
             {groups.map((group, i) => {
               const isCreator = group.createdBy === user.uid;
               const initial = group.name.charAt(0).toUpperCase();
+              const votingClosed = isVotingClosed(group, 0);
+              const othersCount = group.participants.filter((p) => p !== user.uid).length;
+              const waitingForFriends = !votingClosed && othersCount === 0;
               
               return (
                 <div 
@@ -231,7 +252,8 @@ export default function MyGroupsPage() {
                         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{group.name}</h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                           {group.participants.length} {group.participants.length === 1 ? 'person' : 'people'}
-                          {isCreator && ' · You'}
+                          {isCreator && ' · You host'}
+                          {votingClosed ? ' · Closed' : ' · Voting open'}
                         </p>
                         {group.code && (
                           <p className="mt-1.5 font-mono text-sm tracking-wider text-gray-800 dark:text-gray-200">
@@ -243,6 +265,16 @@ export default function MyGroupsPage() {
 
                     {group.description && (
                       <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">{group.description}</p>
+                    )}
+
+                    {waitingForFriends && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-lg px-3 py-2">
+                        Waiting for friends — share the code so others can join. You can rate once someone else is in.
+                      </p>
+                    )}
+
+                    {!votingClosed && (
+                      <p className="text-[11px] text-gray-500 dark:text-gray-500">{getVotingCloseHint(group)}</p>
                     )}
 
                     {/* Actions: one row, same alignment — Share + Rate + Results */}
@@ -257,7 +289,7 @@ export default function MyGroupsPage() {
                         ) : (
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
                         )}
-                        Share
+                        {sharedGroupId === group.id ? 'Shared' : shareFailGroupId === group.id ? 'Copy failed' : 'Share'}
                       </button>
                       {(() => {
                         const participantsToRate =
@@ -268,10 +300,10 @@ export default function MyGroupsPage() {
                             : group.participants.filter((p) => p !== user.uid);
                         const unratedCount = unratedCountByGroupId[group.id!] ?? participantsToRate.length;
                         const allRated = participantsToRate.length > 0 && unratedCount === 0;
-                        const showRate = !group.votingClosed && !allRated && participantsToRate.length > 0;
+                        const showRate = !votingClosed && !allRated && participantsToRate.length > 0;
                         return (
                           <div className="inline-flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 p-0.5 shrink-0">
-                            {group.votingClosed || allRated ? (
+                            {votingClosed || allRated ? (
                               <Link
                                 href={`/group/${group.id}/results`}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium text-sm hover:opacity-90 transition-colors"
@@ -280,7 +312,7 @@ export default function MyGroupsPage() {
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                 </svg>
-                                Results
+                                {votingClosed ? 'Final results' : 'Results'}
                               </Link>
                             ) : (
                               <>
@@ -301,12 +333,12 @@ export default function MyGroupsPage() {
                                   className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md font-medium text-sm transition-colors ${
                                     showRate ? 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-90'
                                   }`}
-                                  title="View results"
+                                  title="Live standings (not final until voting closes)"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                   </svg>
-                                  Results
+                                  Live results
                                 </Link>
                               </>
                             )}
@@ -315,19 +347,19 @@ export default function MyGroupsPage() {
                       })()}
                     </div>
 
-                    {/* Secondary: Close session / Leave — subtle, aligned */}
-                    <div className="pt-1 border-t border-gray-100 dark:border-gray-800">
-                      {isCreator && !group.votingClosed && (
+                    {/* Secondary: Close session / Leave */}
+                    <div className="pt-1 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-3">
+                      {isCreator && !votingClosed && (
                         <button
                           onClick={() => handleCloseVoting(group)}
                           disabled={closingGroupId === group.id}
-                          className="inline-flex items-center gap-1.5 px-0 py-1 text-gray-500 dark:text-gray-400 text-xs hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50 transition-colors"
-                          title="Close session"
+                          className="inline-flex items-center gap-1.5 px-0 py-1 text-amber-700 dark:text-amber-400 text-xs font-medium hover:underline disabled:opacity-50 transition-colors"
+                          title="Lock voting and finalize results"
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                           </svg>
-                          {closingGroupId === group.id ? 'Closing…' : 'Close session'}
+                          {closingGroupId === group.id ? 'Closing…' : 'Close voting (finalize)'}
                         </button>
                       )}
                       {!isCreator && (
@@ -342,6 +374,9 @@ export default function MyGroupsPage() {
                           </svg>
                           {leavingGroupId === group.id ? 'Leaving…' : 'Leave'}
                         </button>
+                      )}
+                      {isCreator && (
+                        <span className="text-[11px] text-gray-400 dark:text-gray-500">Hosts stay until the session ends</span>
                       )}
                     </div>
                   </div>

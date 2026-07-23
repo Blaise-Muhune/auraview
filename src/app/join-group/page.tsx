@@ -5,10 +5,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useRef, Suspense, useCallback } from "react";
-import { getGroupByCode, joinGroup, GroupSession } from "@/lib/firestore";
+import { getGroupByCode, joinGroup, GroupSession, GroupSlot } from "@/lib/firestore";
 import { sendNotification } from "@/lib/notify";
 
 type Step = 'enter_code' | 'pick_name' | 'enter_name' | 'joining';
+
+function isOpenSeat(slot: GroupSlot): boolean {
+  if (slot.userId) return false;
+  return !!slot.open || slot.label === 'Open seat' || /^Person \d+$/i.test(slot.label);
+}
 
 function JoinGroupContent() {
   const { user, loading } = useAuth();
@@ -82,10 +87,14 @@ function JoinGroupContent() {
     setGroup(g);
     if (g.slots && g.slots.length > 0) {
       const available = g.slots.findIndex((s) => !s.userId);
-      if (available >= 0) {
-        setSelectedSlotIndex(available);
-        setDisplayName(g.slots[available]?.label ?? '');
+      if (available < 0) {
+        setError('All name slots are taken. Ask the host to free a seat (someone leaves) or create a larger group.');
+        fetchedForCode.current = null;
+        return;
       }
+      setSelectedSlotIndex(available);
+      const openSeat = isOpenSeat(g.slots[available]);
+      setDisplayName(openSeat ? (user.displayName || '') : (g.slots[available]?.label ?? ''));
       setStep('pick_name');
     } else {
       setDisplayName(user.displayName || '');
@@ -108,11 +117,25 @@ function JoinGroupContent() {
   const handleJoinWithSlot = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !group || selectedSlotIndex == null) return;
-    const name = (displayName || group.slots?.[selectedSlotIndex]?.label || user.displayName || 'Someone').trim();
+    const slot = group.slots?.[selectedSlotIndex];
+    const openSeat = slot ? isOpenSeat(slot) : false;
+    const name = (
+      displayName ||
+      (!openSeat ? slot?.label : '') ||
+      user.displayName ||
+      ''
+    ).trim();
+    if (openSeat && !name) {
+      setError('Enter your name for this open seat.');
+      return;
+    }
     setIsJoining(true);
     setError(null);
     try {
-      await joinGroup(group.id!, user, { slotIndex: selectedSlotIndex, displayName: name || undefined });
+      await joinGroup(group.id!, user, {
+        slotIndex: selectedSlotIndex,
+        displayName: name || user.displayName || 'Someone',
+      });
       if (group.createdBy) {
         const token = await user.getIdToken();
         sendNotification(group.createdBy, 'group_join', {
@@ -179,7 +202,7 @@ function JoinGroupContent() {
           <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Join group</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             {step === 'enter_code' && 'Enter the 6-character code'}
-            {step === 'pick_name' && 'Choose your slot (placeholder names from the host)'}
+            {step === 'pick_name' && 'Choose a named seat or an open seat and add your name'}
             {step === 'enter_name' && 'Your name for this group'}
           </p>
         </header>
@@ -228,15 +251,16 @@ function JoinGroupContent() {
               </p>
               <div>
                 <label className="block text-gray-900 dark:text-gray-100 font-medium mb-2 text-sm">
-                  Pick your slot
+                  Pick your seat
                 </label>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  These are labels the host added — pick the one meant for you, then edit the display name if needed.
+                  Named seats are placeholders from the host. Open seats are free — pick one and type your own name.
                 </p>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {group.slots.map((slot, i) => {
                     const taken = !!slot.userId;
                     const selected = selectedSlotIndex === i;
+                    const openSeat = isOpenSeat(slot);
                     return (
                       <button
                         key={i}
@@ -244,7 +268,7 @@ function JoinGroupContent() {
                         onClick={() => {
                           if (!taken) {
                             setSelectedSlotIndex(i);
-                            setDisplayName(slot.label);
+                            setDisplayName(openSeat ? (user?.displayName || '') : slot.label);
                           }
                         }}
                         className={`w-full text-left px-4 py-3 rounded-lg border text-sm transition-colors ${
@@ -255,7 +279,11 @@ function JoinGroupContent() {
                               : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-100'
                         }`}
                       >
-                        {taken ? `${slot.displayName ?? slot.label} (taken)` : slot.label}
+                        {taken
+                          ? `${slot.displayName ?? slot.label} (taken)`
+                          : openSeat
+                            ? 'Open seat — write your name'
+                            : slot.label}
                       </button>
                     );
                   })}
@@ -264,13 +292,16 @@ function JoinGroupContent() {
               {selectedSlotIndex != null && !group.slots[selectedSlotIndex]?.userId && (
                 <div>
                   <label htmlFor="displayName" className="block text-gray-900 dark:text-gray-100 font-medium mb-2 text-sm">
-                    You can edit your name
+                    {isOpenSeat(group.slots[selectedSlotIndex])
+                      ? 'Your name'
+                      : 'You can edit your name'}
                   </label>
                   <input
                     type="text"
                     id="displayName"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
+                    required={isOpenSeat(group.slots[selectedSlotIndex])}
                     className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                     placeholder="Your name"
                   />
