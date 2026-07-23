@@ -154,7 +154,7 @@ export function Nav({
             </Link>
           ) : (
             <Link
-              href={user ? '/dashboard' : '/leaderboard'}
+              href={user ? '/dashboard' : '/'}
               className="flex items-center gap-2 text-gray-900 dark:text-gray-100 hover:opacity-90 transition-opacity shrink-0"
             >
               <Image src="/logo.png" alt="Aura" width={24} height={24} className="rounded-lg sm:w-7 sm:h-7" />
@@ -194,7 +194,7 @@ export function Nav({
                 <Link href="/my-groups" className={`px-2 py-1.5 text-sm font-medium rounded-lg transition-colors ${pathname === '/my-groups' || pathname?.startsWith('/my-groups') ? 'text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800/80' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800/50'}`}>Groups</Link>
               </>
             )}
-            <Link href="/feed" className={`px-2 py-1.5 text-sm font-medium rounded-lg transition-colors ${pathname === '/feed' || pathname?.startsWith('/feed') ? 'text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800/80' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800/50'}`}>Feed</Link>
+            <Link href="/feed" className={`px-2 py-1.5 text-sm font-medium rounded-lg transition-colors ${pathname === '/feed' || pathname?.startsWith('/feed') ? 'text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800/80' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800/50'}`} title="Optional updates feed">Feed <span className="text-[10px] opacity-60">extra</span></Link>
             <Link href="/leaderboard" className={`px-2 py-1.5 text-sm font-medium rounded-lg transition-colors ${pathname?.startsWith('/leaderboard') ? 'text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800/80' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800/50'}`}>Rankings</Link>
           </div>
           {isAdmin && (
@@ -252,7 +252,7 @@ export function Nav({
                 {menuLink('/my-groups', 'Groups', <GroupsIcon />)}
               </>
             )}
-            {menuLink('/feed', 'Feed', <FeedIcon />)}
+            {menuLink('/feed', 'Feed (extra)', <FeedIcon />)}
             {menuLink('/leaderboard', 'Rankings', <RankingsIcon />)}
             {user && menuLink('/profile', 'Profile', <ProfileIcon />)}
             {user && isAdmin && (

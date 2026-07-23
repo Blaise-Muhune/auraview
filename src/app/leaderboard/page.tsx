@@ -387,10 +387,16 @@ function LeaderboardContent() {
                       : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
                   }`}
                 >
-                  Famous People
+                  Famous
+                  <span className="ml-1 text-[10px] opacity-70 font-normal">fun</span>
                 </button>
               </div>
             </div>
+            {activeTab === 'users' ? (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Real Aura accounts — tap Rate to score a friend, or Profile to view them.</p>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Optional celebrity board for fun — separate from friend rankings.</p>
+            )}
           </div>
 
           {activeTab === 'users' ? (
@@ -479,38 +485,41 @@ function LeaderboardContent() {
                   const isUser3 = user && third.userId === user.uid;
                   const podiumHref = (r: UserRanking, isYou: boolean) => {
                     if (isYou) return user ? `/profile/${r.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${r.userId}`)}`;
-                    return user ? `/rate-user/${r.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${r.userId}`)}`;
+                    return user ? `/profile/${r.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${r.userId}`)}`;
                   };
+                  const rateHref = (r: UserRanking) =>
+                    user ? `/rate-user/${r.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${r.userId}`)}`;
                   const PodiumSlot = ({ r, isYou, rank, bg, bgFoot }: { r: UserRanking; isYou: boolean; rank: number; bg: string; bgFoot: string }) => {
-                    const href = podiumHref(r, isYou);
+                    const profileHref = podiumHref(r, isYou);
                     const h = rank === 1 ? 'h-20 sm:h-24' : rank === 2 ? 'h-14 sm:h-16' : 'h-10 sm:h-12';
-                    const slotClass = 'flex flex-col items-center flex-1 max-w-[90px] sm:max-w-[110px]';
-                    const content = (
-                      <>
-                        <div className={`w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center text-white font-semibold text-lg rounded-full mb-2 ${rank === 1 ? 'sm:w-16 sm:h-16 sm:text-xl' : ''} ${bg}`}>
-                          {r.displayName.charAt(0).toUpperCase() || '?'}
-                        </div>
-                        <div className="text-center mb-2 min-w-0 px-1">
-                          <div className="text-[13px] text-gray-900 dark:text-gray-100 truncate max-w-full" title={r.displayName}>{r.displayName}</div>
-                          {isYou && <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">You</span>}
-                          <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                            {sortBy === 'total' ? (r.totalAura?.toLocaleString() ?? '—') : (r.questionTotals?.[sortBy] ?? 0).toLocaleString()}
+                    return (
+                      <div className="flex flex-col items-center flex-1 max-w-[90px] sm:max-w-[110px]">
+                        <Link href={profileHref} className="w-full flex flex-col items-center hover:opacity-90 transition-opacity rounded-lg">
+                          <div className={`w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center text-white font-semibold text-lg rounded-full mb-2 ${rank === 1 ? 'sm:w-16 sm:h-16 sm:text-xl' : ''} ${bg}`}>
+                            {r.displayName.charAt(0).toUpperCase() || '?'}
                           </div>
-                        </div>
-                        <div className={`w-full ${bg} ${h} rounded-t`} />
-                        <div className={`w-full h-5 ${bgFoot} rounded-b flex items-center justify-center`}>
-                          <span className="font-mono text-xs text-white/90">{rank}</span>
-                        </div>
-                      </>
-                    );
-                    if (href) {
-                      return (
-                        <Link href={href} className={`${slotClass} cursor-pointer hover:opacity-90 transition-opacity rounded-lg`}>
-                          {content}
+                          <div className="text-center mb-2 min-w-0 px-1">
+                            <div className="text-[13px] text-gray-900 dark:text-gray-100 truncate max-w-full" title={r.displayName}>{r.displayName}</div>
+                            {isYou && <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">You</span>}
+                            <div className={`font-mono text-sm tabular-nums ${rank === 1 ? 'text-lg text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                              {sortBy === 'total' ? (r.totalAura?.toLocaleString() ?? '—') : (r.questionTotals?.[sortBy] ?? 0).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className={`w-full ${bg} ${h} rounded-t`} />
+                          <div className={`w-full h-5 ${bgFoot} rounded-b flex items-center justify-center`}>
+                            <span className="font-mono text-xs text-white/90">{rank}</span>
+                          </div>
                         </Link>
-                      );
-                    }
-                    return <div className={slotClass}>{content}</div>;
+                        {!isYou && (
+                          <Link
+                            href={rateHref(r)}
+                            className="mt-2 w-full text-center text-[10px] sm:text-xs font-medium py-1 rounded-md bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-90"
+                          >
+                            Rate
+                          </Link>
+                        )}
+                      </div>
+                    );
                   };
                   return (
                     <div className="py-8 px-4 border-b border-gray-200 dark:border-gray-800">
@@ -536,17 +545,20 @@ function LeaderboardContent() {
                       const auraLevel = getAuraLevel(userRanking.totalAura ?? 0);
                       const isCurrentUser = user && userRanking.userId === user.uid;
 
-                      const userRowHref = isCurrentUser
-                        ? (user ? `/profile/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/profile/${userRanking.userId}`)}`)
-                        : (user ? `/rate-user/${userRanking.userId}` : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`);
+                      const userRowHref = user
+                        ? `/profile/${userRanking.userId}`
+                        : `/login?redirect=${encodeURIComponent(`/profile/${userRanking.userId}`)}`;
+                      const rateRowHref = user
+                        ? `/rate-user/${userRanking.userId}`
+                        : `/login?redirect=${encodeURIComponent(`/rate-user/${userRanking.userId}`)}`;
                       return (
-                        <Link
+                        <div
                           key={userRanking.userId}
-                          href={userRowHref}
-                          className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 py-4 px-4 sm:px-6 hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors cursor-pointer ${
+                          className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 py-4 px-4 sm:px-6 ${
                             isCurrentUser ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''
                           }`}
                         >
+                          <Link href={userRowHref} className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-6 min-w-0 flex-1 hover:opacity-90 transition-opacity">
                           <div className="w-10 shrink-0">{getRankBadge(actualRank)}</div>
                           <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                             <div className="shrink-0 w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-200 font-semibold text-sm rounded-full bg-gray-200 dark:bg-gray-700 ring-1 ring-gray-300 dark:ring-gray-600">
@@ -581,7 +593,24 @@ function LeaderboardContent() {
                               </div>
                             )}
                           </div>
-                        </Link>
+                          </Link>
+                          {!isCurrentUser && (
+                            <div className="flex gap-2 shrink-0 w-full sm:w-auto justify-end">
+                              <Link
+                                href={userRowHref}
+                                className="px-3 py-2 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                              >
+                                Profile
+                              </Link>
+                              <Link
+                                href={rateRowHref}
+                                className="px-3 py-2 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-90"
+                              >
+                                Rate
+                              </Link>
+                            </div>
+                          )}
+                        </div>
                       );
                     });
                     })()}
@@ -696,11 +725,11 @@ function LeaderboardContent() {
                     </svg>
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                    {searchQuery ? 'No Results Found' : !hasValidApiKey ? 'Setup Required' : 'No Famous People Rankings Yet'}
+                    {searchQuery ? 'No Results Found' : !hasValidApiKey ? 'Famous board unavailable' : 'No Famous People Rankings Yet'}
                   </h3>
                   <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">
                     {searchQuery ? 'Try a different search term.' : !hasValidApiKey
-                      ? 'Add NEXT_PUBLIC_TMDB_API_KEY to enable famous people.'
+                      ? "This optional fun board isn't set up yet. Friend rankings still work as usual."
                       : 'Stay tuned for the first rankings!'}
                   </p>
                   {!searchQuery && hasValidApiKey && (

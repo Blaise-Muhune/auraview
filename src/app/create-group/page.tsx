@@ -12,7 +12,9 @@ export default function CreateGroup() {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ id: string; code: string; name: string } | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [shared, setShared] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
 
   const [formData, setFormData] = useState({
@@ -27,7 +29,7 @@ export default function CreateGroup() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/leaderboard');
+      router.push('/login?redirect=' + encodeURIComponent('/create-group'));
     }
   }, [user, loading, router]);
 
@@ -39,13 +41,47 @@ export default function CreateGroup() {
     })();
   }, [user]);
 
+  const inviteUrl = (code: string) =>
+    `${typeof window !== 'undefined' ? window.location.origin : ''}/join-group?code=${code}`;
+
+  const shareInvite = async (name: string, code: string) => {
+    const url = inviteUrl(code);
+    const message = `Join our Aura group "${name}" with code ${code}: ${url}`;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({ title: `Join ${name} on Aura`, text: message, url });
+        setShared(true);
+        setTimeout(() => setShared(false), 2000);
+        return;
+      } catch {
+        // cancelled or failed — fall through to copy
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(message);
+      setShared(true);
+      setTimeout(() => setShared(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
     setIsCreating(true);
     setError(null);
-    setSuccess(null);
 
     try {
       if (!formData.name.trim()) {
@@ -58,7 +94,7 @@ export default function CreateGroup() {
         .filter(Boolean);
 
       const expectedCount = Math.max(2, Math.min(100, Number(formData.expectedCount) || 8));
-      await createGroupSession(
+      const result = await createGroupSession(
         formData.name.trim(),
         formData.description.trim(),
         user,
@@ -68,11 +104,7 @@ export default function CreateGroup() {
         slotLabels.length > 0 ? slotLabels : undefined
       );
 
-      setSuccess(`Group created! Redirecting...`);
-      setTimeout(() => {
-        router.push('/my-groups');
-      }, 1200);
-
+      setCreated({ id: result.id, code: result.code, name: formData.name.trim() });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create group');
     } finally {
@@ -100,17 +132,61 @@ export default function CreateGroup() {
     return null;
   }
 
+  if (created) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <Nav showBack backHref="/my-groups" />
+        <main className="max-w-xl mx-auto px-5 py-10">
+          <header className="mb-8 text-center">
+            <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Group created</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">{created.name}</p>
+          </header>
+          <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-6 text-center space-y-5">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Invite code</p>
+              <p className="font-mono text-3xl sm:text-4xl font-semibold tracking-widest text-gray-900 dark:text-gray-100">{created.code}</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <button
+                type="button"
+                onClick={() => void copyCode(created.code)}
+                className="px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-900"
+              >
+                {codeCopied ? 'Code copied!' : 'Copy code'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void shareInvite(created.name, created.code)}
+                className="px-4 py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90"
+              >
+                {shared ? 'Invite copied!' : 'Share invite'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Friends join at Join group with this code, or open your invite link.
+            </p>
+            <Link
+              href="/my-groups"
+              className="inline-block pt-2 text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline"
+            >
+              Continue to My groups →
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">
       <Nav showBack backHref="/dashboard" />
       <main className="max-w-xl mx-auto px-5 py-10">
         <header className="mb-10">
           <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Create group</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Name it, get a code</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Name it, get a code to share with friends</p>
         </header>
         <div className="border border-gray-200 dark:border-gray-800 rounded-xl p-5">
             {error && <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>}
-            {success && <p className="mb-4 text-green-600 dark:text-green-400 text-sm">{success}</p>}
 
             <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
               <div>
@@ -144,7 +220,7 @@ export default function CreateGroup() {
                   max="100"
                   className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you). Voting defaults to {formData.votingDurationDays} days.</p>
               </div>
 
               <div>
@@ -266,4 +342,4 @@ export default function CreateGroup() {
       </main>
     </div>
   );
-} 
+}

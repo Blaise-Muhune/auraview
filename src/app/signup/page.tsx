@@ -32,7 +32,7 @@ function SignupContent() {
         localStorage.removeItem('pendingGroupCode');
         router.push(`/join-group?code=${code}`);
       } else {
-        router.push('/dashboard');
+        router.push('/onboarding');
       }
     }
   }, [user, loading, router, searchParams]);

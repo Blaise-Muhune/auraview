@@ -11,6 +11,7 @@ import { getScoreLegend } from "@/lib/rating-scale";
 import { sendNotification } from "@/lib/notify";
 import { Nav } from "@/components/Nav";
 import { LeaderboardConsent } from "@/components/LeaderboardConsent";
+import { ScoringHelp } from "@/components/ScoringHelp";
 
 const PENDING_RATING_KEY = 'aura_pending_direct_rating';
 
@@ -463,6 +464,8 @@ export default function RateUserPage({ params }: RateUserPageProps) {
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
             {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given (±2,000 per question)
           </p>
+
+          <ScoringHelp oneShotNote />
 
           {/* Progress bar */}
           <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-2 relative">

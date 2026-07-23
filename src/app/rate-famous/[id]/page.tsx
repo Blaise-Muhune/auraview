@@ -10,6 +10,7 @@ import { submitFamousPersonRating, getFamousPersonStats, hasUserRatedFamousPerso
 import { getScoreLegend } from "@/lib/rating-scale";
 import { Nav } from "@/components/Nav";
 import { ShareableCardFamous } from "@/components/ShareableCard";
+import { ScoringHelp } from "@/components/ScoringHelp";
 import html2canvas from "html2canvas";
 
 interface RateFamousPageProps {
@@ -462,6 +463,7 @@ export default function RateFamousPage({ params }: RateFamousPageProps) {
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
             {totalGiven > 0 ? '+' : ''}{totalGiven.toLocaleString()} given (±2,000 per question)
           </p>
+          <ScoringHelp oneShotNote />
           <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-2 relative">
             <div className="absolute left-1/2 top-0 w-0.5 h-full bg-gray-400 dark:bg-gray-600 -translate-x-px z-10" />
             <div

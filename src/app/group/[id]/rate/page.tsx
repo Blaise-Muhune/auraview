@@ -11,6 +11,7 @@ import { getGroupById, getGroupRatings, getParticipantIdsRatedByUserInGroup, sub
 import { getScoreLegend } from "@/lib/rating-scale";
 import { sendNotification } from "@/lib/notify";
 import { LeaderboardConsent } from "@/components/LeaderboardConsent";
+import { ScoringHelp } from "@/components/ScoringHelp";
 
 interface RatePageProps {
   params: Promise<{
@@ -498,9 +499,11 @@ export default function RatePage({ params }: RatePageProps) {
             )}
           </div>
           <div className="text-center text-gray-900 dark:text-gray-100 mb-3">
-            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Share what you appreciate</h1>
-            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">10,000 pts per person</p>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Rate your group</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">Honest scores help — positive or negative. ±10,000 per person.</p>
           </div>
+
+          <ScoringHelp />
 
           {error && (
             <p className="mb-4 text-red-600 dark:text-red-400 text-sm">{error}</p>

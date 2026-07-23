@@ -208,7 +208,7 @@ export const createGroupSession = async (
   votingDurationDays?: number,
   minVotersToClose?: number,
   slotLabels?: string[]
-): Promise<string> => {
+): Promise<{ id: string; code: string }> => {
   let code: string;
   let exists: boolean;
 
@@ -257,7 +257,7 @@ export const createGroupSession = async (
   };
 
   const docRef = await addDoc(collection(db, 'groups'), groupData);
-  return docRef.id;
+  return { id: docRef.id, code };
 };
 
 // Close voting manually (creator only)

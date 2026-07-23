@@ -1,6 +1,7 @@
 'use client';
 
 import Image from "next/image";
+import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { Nav } from "@/components/Nav";
 import { useRouter } from "next/navigation";
@@ -81,7 +82,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/leaderboard');
+      router.push('/login?redirect=' + encodeURIComponent('/profile'));
       return;
     }
     if (user) loadProfile();
@@ -222,6 +223,12 @@ export default function ProfilePage() {
           <div>
             <div className="font-medium text-gray-900 dark:text-gray-100">{user.displayName || 'User'}</div>
             <div className="text-sm text-gray-500 dark:text-gray-400">{user.email}</div>
+            <Link
+              href={`/profile/${user.uid}`}
+              className="inline-block mt-2 text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline"
+            >
+              Open public profile &amp; share link →
+            </Link>
           </div>
         </div>
 

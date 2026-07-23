@@ -75,7 +75,8 @@ function JoinGroupContent() {
       return;
     }
     if (g.participants.length >= max) {
-      router.push('/dashboard');
+      setError('This group is full. Ask the host to raise the member limit, or join another group.');
+      fetchedForCode.current = null;
       return;
     }
     setGroup(g);
@@ -178,7 +179,7 @@ function JoinGroupContent() {
           <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1">Join group</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             {step === 'enter_code' && 'Enter the 6-character code'}
-            {step === 'pick_name' && 'Pick your name (you can edit it)'}
+            {step === 'pick_name' && 'Choose your slot (placeholder names from the host)'}
             {step === 'enter_name' && 'Your name for this group'}
           </p>
         </header>
@@ -227,8 +228,11 @@ function JoinGroupContent() {
               </p>
               <div>
                 <label className="block text-gray-900 dark:text-gray-100 font-medium mb-2 text-sm">
-                  Pick your name
+                  Pick your slot
                 </label>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  These are labels the host added — pick the one meant for you, then edit the display name if needed.
+                </p>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {group.slots.map((slot, i) => {
                     const taken = !!slot.userId;
