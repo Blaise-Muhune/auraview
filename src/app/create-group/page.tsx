@@ -21,6 +21,7 @@ export default function CreateGroup() {
     name: '',
     description: '',
     expectedCount: 8,
+    hostDisplayName: '',
     memberNamesText: '',
     votingDurationDays: 7,
     minVotersToClose: '' as number | '',
@@ -36,7 +37,11 @@ export default function CreateGroup() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      await ensureUserProfile(user);
+      const profile = await ensureUserProfile(user);
+      setFormData((prev) => ({
+        ...prev,
+        hostDisplayName: prev.hostDisplayName || profile.displayName || user.displayName || '',
+      }));
       setProfileLoading(false);
     })();
   }, [user]);
@@ -88,15 +93,16 @@ export default function CreateGroup() {
         throw new Error('Group name is required');
       }
 
-      const slotLabels = formData.memberNamesText
+      // Names listed are other people only — host is always included automatically
+      const otherLabels = formData.memberNamesText
         .split(/[\n,]+/)
         .map((s) => s.trim())
         .filter(Boolean);
 
-      // If names are listed, size the group to at least that many people
       let expectedCount = Math.max(2, Math.min(100, Number(formData.expectedCount) || 8));
-      if (slotLabels.length > 0) {
-        expectedCount = Math.max(expectedCount, Math.min(100, slotLabels.length));
+      const minSeats = 1 + otherLabels.length;
+      if (minSeats > expectedCount) {
+        expectedCount = Math.min(100, minSeats);
       }
       const result = await createGroupSession(
         formData.name.trim(),
@@ -105,7 +111,8 @@ export default function CreateGroup() {
         expectedCount,
         formData.votingDurationDays,
         typeof formData.minVotersToClose === 'number' ? formData.minVotersToClose : undefined,
-        slotLabels.length > 0 ? slotLabels : undefined
+        otherLabels.length > 0 ? otherLabels : undefined,
+        formData.hostDisplayName.trim() || undefined
       );
 
       setCreated({ id: result.id, code: result.code, name: formData.name.trim() });
@@ -121,11 +128,13 @@ export default function CreateGroup() {
     setFormData(prev => {
       const next = { ...prev, [name]: value };
       if (name === 'memberNamesText') {
-        const n = value
+        const others = value
           .split(/[\n,]+/)
           .map((s) => s.trim())
           .filter(Boolean).length;
-        if (n >= 2) next.expectedCount = Math.max(prev.expectedCount, Math.min(100, n));
+        // Host + others
+        const minSeats = 1 + others;
+        if (minSeats >= 2) next.expectedCount = Math.max(prev.expectedCount, Math.min(100, minSeats));
       }
       return next;
     });
@@ -236,12 +245,28 @@ export default function CreateGroup() {
                   max="100"
                   className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you). You can list fewer names than this — leftover seats stay open for friends to join and type their own names. Voting stays open until the time limit or you close — filling the group does not lock ratings. Default {formData.votingDurationDays} days.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">How many people will be in this group (including you). You can list fewer other names than this — leftover seats stay open for friends to join and type their own names. Voting stays open until the time limit or you close — filling the group does not lock ratings.</p>
+              </div>
+
+              <div>
+                <label htmlFor="hostDisplayName" className="block text-gray-900 dark:text-gray-100 text-sm font-medium mb-2">
+                  Your name in this group
+                </label>
+                <input
+                  type="text"
+                  id="hostDisplayName"
+                  name="hostDisplayName"
+                  value={formData.hostDisplayName}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 text-sm"
+                  placeholder="Your name"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Filled from your profile automatically — edit only if you want a different label here.</p>
               </div>
 
               <div>
                 <label htmlFor="memberNamesText" className="block text-gray-900 dark:text-gray-100 text-sm font-medium mb-2">
-                  Add names <span className="text-gray-500 dark:text-gray-400 font-normal">(optional)</span>
+                  Add others <span className="text-gray-500 dark:text-gray-400 font-normal">(optional)</span>
                 </label>
                 <textarea
                   id="memberNamesText"
@@ -250,16 +275,16 @@ export default function CreateGroup() {
                   onChange={handleInputChange}
                   rows={4}
                   className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:focus:ring-amber-500 resize-y text-sm"
-                  placeholder={'Your name first, then others — one per line or commas\ne.g. Jamie\nAlex, Sam'}
+                  placeholder={'Other people — one per line or commas\ne.g. Alex\nSam, Jordan'}
                 />
                 <div className="mt-2 space-y-2 text-xs text-gray-500 dark:text-gray-400">
                   <p>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">You are already in the group.</span>{' '}
-                    You do not need to add yourself as an extra person; &quot;Number of people&quot; already includes you.
+                    <span className="font-medium text-gray-700 dark:text-gray-300">You are already in the group</span>
+                    {' '}— do not add yourself here. List friends you know will join; anyone you skip stays an open seat they can claim with their own name.
                   </p>
                   <p>
-                    If you add names, the <span className="font-medium text-gray-700 dark:text-gray-300">first name is your slot</span>{' '}
-                    (the label for you as host). Put <span className="font-medium text-gray-700 dark:text-gray-300">your name on the first line</span>, then anyone else you know. Example: size <span className="font-medium text-gray-700 dark:text-gray-300">8</span> with <span className="font-medium text-gray-700 dark:text-gray-300">5 names</span> → 3 open seats for people to join and write their own names.
+                    Example: size <span className="font-medium text-gray-700 dark:text-gray-300">8</span> with{' '}
+                    <span className="font-medium text-gray-700 dark:text-gray-300">5 other names</span> → you + those 5 + 2 open seats.
                   </p>
                   <p className="font-medium text-gray-700 dark:text-gray-300">How to type names</p>
                   <ul className="list-disc pl-4 space-y-0.5">

@@ -213,7 +213,9 @@ export const createGroupSession = async (
   expectedCount: number,
   votingDurationDays?: number,
   minVotersToClose?: number,
-  slotLabels?: string[]
+  /** Names of other members only — host is always seat 0 from their profile (optional override). */
+  otherMemberLabels?: string[],
+  hostDisplayNameOverride?: string
 ): Promise<{ id: string; code: string }> => {
   let code: string;
   let exists: boolean;
@@ -224,25 +226,30 @@ export const createGroupSession = async (
   } while (exists);
 
   const userProfile = await ensureUserProfile(user);
-  const creatorDisplayName = userProfile.displayName || user.displayName || 'Anonymous';
+  const creatorDisplayName =
+    (hostDisplayNameOverride ?? '').trim() ||
+    userProfile.displayName ||
+    user.displayName ||
+    'Anonymous';
 
   const days = votingDurationDays ?? 7;
   const closesAt = Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
 
+  const others = (otherMemberLabels ?? []).map((s) => s.trim()).filter(Boolean);
+  // Host + listed others must fit; leftover seats (if expectedCount is larger) stay open
   let maxParticipants = Math.max(2, Math.min(100, expectedCount || 50));
-  if (slotLabels && slotLabels.length > 0 && slotLabels.length > maxParticipants) {
-    maxParticipants = Math.min(100, slotLabels.length);
+  const minForNames = 1 + others.length;
+  if (minForNames > maxParticipants) {
+    maxParticipants = Math.min(100, minForNames);
   }
 
-  // Always create one seat per expected person so leftover seats stay joinable with a custom name
-  const labels = slotLabels ?? [];
+  // Seat 0 = host (auto). Remaining seats = listed others, then open seats.
   const slots: GroupSlot[] = Array.from({ length: maxParticipants }, (_, i) => {
     if (i === 0) {
-      const hostLabel = (labels[0] ?? '').trim() || 'You';
-      return { label: hostLabel, userId: user.uid, displayName: creatorDisplayName };
+      return { label: creatorDisplayName, userId: user.uid, displayName: creatorDisplayName };
     }
-    const name = (labels[i] ?? '').trim();
-    if (name) return { label: name };
+    const otherName = others[i - 1];
+    if (otherName) return { label: otherName };
     return { label: 'Open seat', open: true };
   });
 
@@ -258,6 +265,7 @@ export const createGroupSession = async (
     maxParticipants,
     votingClosesAt: closesAt,
     slots,
+    participantDisplayNames: { [user.uid]: creatorDisplayName },
     ...(minVotersToClose != null && minVotersToClose > 0 && { minVotersToClose }),
   };
 
